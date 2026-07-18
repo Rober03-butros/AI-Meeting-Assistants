@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# audio files
+uploads/
+
 # Python
 __pycache__/
 *.py[cod]
