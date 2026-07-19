@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<title>AI Meeting Recorder</title>
+
+<style>
+body {
+    font-family: Arial;
+    background:#08131f;
+    color:white;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:15px;
+    padding-top:30px;
+}
+
+button {
+    padding:12px 20px;
+    font-size:16px;
+    border:none;
+    cursor:pointer;
+    border-radius:8px;
+    font-weight:bold;
+}
+
+#startBtn {
+    background:#00c7b7;
+    color:#000;
+}
+
+#stopBtn {
+    background:#ff3b3b;
+    color:white;
+}
+
+#meetBtn {
+    background:#4285F4;
+    color:white;
+}
+
+#stopBtn:disabled {
+    background:#555;
+}
+
+video {
+    width:80%;
+    max-width:900px;
+    border:2px solid #00c7b7;
+    border-radius:10px;
+    display:none;
+}
+
+#status {
+    margin-top:20px;
+    color:#00eaff;
+}
+</style>
+
+</head>
+
+
+<body>
+
+
+<h2>
+AI Meeting Recorder
+</h2>
+
+
+<button id="meetBtn">
+Open Google Meet
+</button>
+
+<input 
+    id="meetingTitle"
+    placeholder="Meeting name"
+    type="text"
+/>
+
+<button id="startBtn">
+Start Recording
+</button>
+
+
+<button id="stopBtn" disabled>
+Stop Recording
+</button>
+
+
+<video id="preview" autoplay playsinline muted></video>
+
+
+<div id="status"></div>
+
+
+
+<script>
+
+
+let mediaRecorder;
+let mixedStream;
+
+let chunks = [];
+
+
+const ACCESS_TOKEN = localStorage.getItem("access_token");
+
+if (!ACCESS_TOKEN) {
+    window.location.href = "login.html";
+}
+
+const API = "http://localhost:8000";
+const API_URL = `${API}/meetings/upload`;
+
+
+const preview =
+document.getElementById("preview");
+
+
+const startBtn =
+document.getElementById("startBtn");
+
+
+const stopBtn =
+document.getElementById("stopBtn");
+
+
+const meetBtn =
+document.getElementById("meetBtn");
+
+
+const status =
+document.getElementById("status");
+
+
+
+
+
+meetBtn.onclick = () => {
+
+    window.open(
+        "https://meet.google.com",
+        "_blank",
+        "width=1200,height=800"
+    );
+
+};
+
+
+
+
+
+
+startBtn.onclick = async () => {
+
+
+try {
+
+
+    chunks = [];
+
+
+    const screenStream =
+    await navigator.mediaDevices.getDisplayMedia({
+
+        video:true,
+
+        audio:true
+    });
+
+
+
+    let micStream;
+
+
+    try {
+
+        micStream =
+        await navigator.mediaDevices.getUserMedia({
+
+            audio:true
+
+        });
+
+
+    }
+    catch {
+
+        console.log(
+            "Microphone disabled"
+        );
+
+    }
+
+
+
+
+    const audioContext =
+    new AudioContext();
+
+
+    const destination =
+    audioContext.createMediaStreamDestination();
+
+
+
+
+
+    if(
+        screenStream.getAudioTracks().length
+    ){
+
+        const screenAudio =
+        audioContext.createMediaStreamSource(
+            screenStream
+        );
+
+
+        screenAudio.connect(
+            destination
+        );
+
+    }
+
+
+
+
+
+
+    if(
+        micStream &&
+        micStream.getAudioTracks().length
+    ){
+
+        const micAudio =
+        audioContext.createMediaStreamSource(
+            micStream
+        );
+
+
+        micAudio.connect(
+            destination
+        );
+
+    }
+
+
+
+
+
+    mixedStream =
+    new MediaStream([
+
+        ...destination.stream.getAudioTracks()
+
+    ]);
+
+
+
+
+
+
+    mediaRecorder =
+    new MediaRecorder(
+        mixedStream,
+        {
+            mimeType:"audio/webm"
+        }
+    );
+
+
+
+
+
+    mediaRecorder.ondataavailable =
+    event => {
+
+        if(event.data.size > 0){
+
+            chunks.push(event.data);
+
+        }
+
+    };
+
+
+
+
+
+
+    mediaRecorder.onstop =
+    uploadRecording;
+
+
+
+
+
+    mediaRecorder.start(1000);
+
+
+
+
+    status.innerHTML =
+    "Recording started...";
+
+
+
+    startBtn.disabled = true;
+
+    stopBtn.disabled = false;
+
+
+
+}
+
+catch(error){
+
+    console.error(error);
+
+    alert(
+        "Recording error: " + error
+    );
+
+}
+
+
+};
+
+
+
+
+
+
+
+
+stopBtn.onclick = () => {
+
+
+    mediaRecorder.stop();
+
+
+    if(mixedStream){
+
+        mixedStream
+        .getTracks()
+        .forEach(
+            track => track.stop()
+        );
+
+    }
+
+
+
+    status.innerHTML =
+    "Uploading...";
+
+
+    startBtn.disabled=false;
+
+    stopBtn.disabled=true;
+
+
+};
+
+
+
+
+
+
+
+async function uploadRecording(){
+
+    const title =
+        document.getElementById("meetingTitle").value;
+
+
+    if(!title){
+
+        alert("Please enter meeting name");
+
+        return;
+    }
+
+
+    const blob =
+    new Blob(
+        chunks,
+        {
+            type:"audio/webm"
+        }
+    );
+
+
+    const formData =
+    new FormData();
+
+
+    formData.append(
+        "file",
+        blob,
+        "meeting.webm"
+    );
+
+
+    formData.append(
+        "title",
+        title
+    );
+
+
+    try {
+
+
+        const response =
+        await fetch(
+            API_URL,
+            {
+                method:"POST",
+
+                headers:{
+                    "Authorization":
+                    "Bearer " + ACCESS_TOKEN
+                },
+
+                body:formData
+            }
+        );
+
+
+        if(response.status === 401){
+
+            localStorage.clear();
+
+            window.location.href =
+            "login.html";
+
+            return;
+        }
+
+
+
+        const data =
+        await response.json();
+
+
+        console.log(data);
+
+
+
+        if(response.ok){
+
+
+            status.innerHTML =
+            "Meeting created successfully. ID: "
+            + data.id;
+
+
+
+            setTimeout(()=>{
+
+                window.location.href =
+                "meetings.html";
+
+            },1000);
+
+
+
+        }
+        else{
+
+
+            status.innerHTML =
+            data.detail || "Upload failed";
+
+
+        }
+
+
+    }
+
+    catch(error){
+
+
+        console.error(error);
+
+
+        status.innerHTML =
+        "Upload failed";
+
+
+    }
+
+}
+
+</script>
+
+
+</body>
+
+</html>

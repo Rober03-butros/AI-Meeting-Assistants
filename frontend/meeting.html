@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Meeting Details</title>
+</head>
+
+
+<body>
+
+
+<h2 id="title">
+Loading...
+</h2>
+
+
+<div id="details"></div>
+
+
+
+<script>
+
+
+const token =
+localStorage.getItem("access_token");
+
+
+
+if(!token){
+
+    window.location.href =
+    "login.html";
+
+}
+
+
+
+const params =
+new URLSearchParams(
+    window.location.search
+);
+
+
+
+const meetingId =
+params.get("id");
+
+
+
+console.log(
+    "Meeting ID:",
+    meetingId
+);
+
+
+
+async function loadMeeting(){
+
+
+    const response =
+    await fetch(
+        `http://localhost:8000/meetings/${meetingId}`,
+        {
+            headers:{
+                "Authorization":
+                "Bearer " + token
+            }
+        }
+    );
+
+
+    const data =
+    await response.json();
+
+
+
+    document.getElementById("title")
+    .innerText =
+    data.title;
+
+
+
+}
+
+
+
+loadMeeting();
+
+
+
+</script>
+
+
+</body>
+
+</html>
