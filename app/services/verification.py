@@ -69,7 +69,20 @@ def verify_email_code(db: Session,user: User,code: str) -> None:
     db.commit()
 
 
-def resend_verification_code(db: Session,user: User) -> EmailVerification:
+def resend_verification_code(
+    db: Session,
+    email: str
+):
+
+    user = db.query(User).filter(
+        User.email == email
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
 
     return create_email_verification(
         db=db,

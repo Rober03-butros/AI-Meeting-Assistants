@@ -11,6 +11,7 @@ from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.models.meeting_user import MeetingUser
 
 if TYPE_CHECKING:
     from app.models.refresh_token import RefreshToken
@@ -35,4 +36,10 @@ class User(Base):
         "RefreshToken",
         back_populates="user",
         cascade="all, delete-orphan"
+    )
+
+    meetings: Mapped[list["MeetingUser"]] = relationship(
+    "MeetingUser",
+    back_populates="user",
+    cascade="all, delete-orphan",
     )

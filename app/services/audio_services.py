@@ -10,10 +10,12 @@ from app.models.audio import Audio
 
 
 UPLOAD_DIR = Path("uploads/audio")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_audio_file(file: UploadFile) -> str:
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
     
     extension = Path(file.filename).suffix
 

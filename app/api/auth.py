@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.core.dependencies import security
@@ -7,7 +7,7 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse
 from app.schemas.token import LogoutRequest, RefreshTokenRequest, TokenResponse
-from app.schemas.verification import VerifyEmailRequest
+from app.schemas.verification import ResendVerificationRequest, VerifyEmailRequest
 from app.services.auth import login_user, logout_user, refresh_access_token, register_user
 from app.core.database import get_db
 from fastapi import BackgroundTasks
@@ -57,12 +57,22 @@ def logout(
 @router.post("/verify-email")
 def verify_email(
     data: VerifyEmailRequest,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+
+    user = db.query(User).filter(
+        User.email == data.email
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
     verify_email_code(
         db=db,
-        user=current_user,
+        user=user,
         code=data.code,
     )
 
@@ -72,18 +82,19 @@ def verify_email(
 
 @router.post("/resend-verification")
 def resend_verification(
+    data: ResendVerificationRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+
     verification = resend_verification_code(
         db=db,
-        user=current_user,
+        email=data.email,
     )
 
     background_tasks.add_task(
         send_verification_email,
-        current_user.email,
+        data.email,
         verification.code,
     )
 
