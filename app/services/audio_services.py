@@ -39,6 +39,7 @@ def create_audio(db: Session,path: str) -> Audio:
 
     return audio
 
+
 def upload_audio(db: Session, file: UploadFile) -> Audio:
 
     path = save_audio_file(file)
@@ -48,10 +49,7 @@ def upload_audio(db: Session, file: UploadFile) -> Audio:
     return audio
 
 
-def get_audio_by_id(
-    db: Session,
-    audio_id: int,
-) -> Audio:
+def get_audio_by_id(db: Session,audio_id: int) -> Audio:
 
     audio = (
         db.query(Audio)

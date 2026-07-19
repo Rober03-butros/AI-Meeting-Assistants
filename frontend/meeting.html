@@ -1,12 +1,69 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
+
+<meta charset="UTF-8">
+
 <title>Meeting Details</title>
+
+
+<style>
+
+body {
+
+    font-family: Arial;
+    padding: 30px;
+
+}
+
+
+h2 {
+
+    margin-bottom:20px;
+
+}
+
+
+.section {
+
+    margin-top:25px;
+
+}
+
+
+audio {
+
+    margin-top:10px;
+    width:400px;
+
+}
+
+
+button {
+
+    padding:10px 15px;
+    cursor:pointer;
+
+}
+
+
+#participantBox {
+
+    margin-top:15px;
+
+}
+
+
+</style>
+
+
 </head>
 
 
+
 <body>
+
 
 
 <h2 id="title">
@@ -14,15 +71,144 @@ Loading...
 </h2>
 
 
-<div id="details"></div>
+
+<p>
+Created at:
+<span id="date"></span>
+</p>
+
+
+
+
+<div class="section">
+
+<h3>
+Transcript
+</h3>
+
+
+<p id="transcript">
+No transcript yet
+</p>
+
+
+</div>
+
+
+
+
+
+
+<div class="section">
+
+<h3>
+Summary
+</h3>
+
+
+<p id="summary">
+No summary yet
+</p>
+
+
+</div>
+
+
+
+
+
+
+
+<div class="section">
+
+
+<h3>
+Recording
+</h3>
+
+
+<audio
+id="audio"
+controls
+style="display:none;">
+</audio>
+
+
+<p id="audioStatus"></p>
+
+
+</div>
+
+
+
+
+
+
+
+<!-- يظهر فقط للـ owner -->
+
+<button 
+id="deleteBtn"
+style="display:none;background:red;color:white;"
+>
+Delete Meeting
+</button>
+
+
+<!-- يظهر فقط للـ owner -->
+
+<button id="addParticipantBtn" style="display:none;">
+    Add Participant
+</button>
+
+
+
+<div id="participantBox" style="display:none;">
+
+
+<input 
+    id="participantEmail"
+    placeholder="User email"
+/>
+
+
+<button id="searchUserBtn">
+    Search
+</button>
+
+
+
+<div id="userResults"></div>
+
+
+</div>
+
+
+
+
+
+
+<br><br>
+
+
+<button id="homeBtn">
+    Home
+</button>
+
+
+
+
 
 
 
 <script>
 
 
+
 const token =
-localStorage.getItem("access_token");
+localStorage.getItem(
+    "access_token"
+);
 
 
 
@@ -32,6 +218,17 @@ if(!token){
     "login.html";
 
 }
+
+
+
+const deleteBtn =
+document.getElementById(
+    "deleteBtn"
+);
+
+const API =
+"http://localhost:8000";
+
 
 
 
@@ -47,36 +244,256 @@ params.get("id");
 
 
 
-console.log(
-    "Meeting ID:",
-    meetingId
+
+
+
+const addParticipantBtn =
+document.getElementById(
+    "addParticipantBtn"
 );
+
+
+
+const participantBox =
+document.getElementById(
+    "participantBox"
+);
+
+
+
+
+
+
+
+document.getElementById("homeBtn").onclick =
+()=>{
+
+    window.location.href =
+    "home.html";
+
+};
+
+
+
+
+
+
+
+
+
+addParticipantBtn.onclick =
+()=>{
+
+
+    participantBox.style.display =
+    "block";
+
+
+};
+
+
+
+
+
+
 
 
 
 async function loadMeeting(){
 
 
-    const response =
-    await fetch(
-        `http://localhost:8000/meetings/${meetingId}`,
-        {
-            headers:{
-                "Authorization":
-                "Bearer " + token
-            }
-        }
-    );
 
-
-    const data =
-    await response.json();
+try {
 
 
 
-    document.getElementById("title")
-    .innerText =
-    data.title;
+const response =
+await fetch(
+
+`${API}/meetings/${meetingId}`,
+
+{
+
+headers:{
+
+"Authorization":
+"Bearer " + token
+
+}
+
+}
+
+);
+
+
+
+
+
+
+if(!response.ok){
+
+
+console.log(
+await response.text()
+);
+
+
+return;
+
+}
+
+
+
+
+
+const meeting =
+await response.json();
+
+
+
+
+console.log(meeting);
+
+
+
+
+
+
+
+document.getElementById("title")
+.innerHTML =
+meeting.title;
+
+
+
+
+
+
+document.getElementById("date")
+.innerHTML =
+meeting.created_at;
+
+
+
+
+
+
+document.getElementById("transcript")
+.innerHTML =
+meeting.transcripts ||
+"No transcript yet";
+
+
+
+
+
+
+document.getElementById("summary")
+.innerHTML =
+meeting.summary ||
+"No summary yet";
+
+
+
+
+
+
+
+if(meeting.is_owner){
+
+
+addParticipantBtn.style.display =
+"block";
+
+
+}
+
+if(meeting.is_owner){
+
+    deleteBtn.style.display =
+    "block";
+
+}
+
+deleteBtn.onclick =
+async ()=>{
+
+
+const confirmDelete =
+confirm(
+"Are you sure you want to delete this meeting?"
+);
+
+
+
+if(!confirmDelete)
+    return;
+
+
+
+
+const response =
+await fetch(
+
+`${API}/meetings/${meetingId}`,
+
+{
+
+method:"DELETE",
+
+headers:{
+
+"Authorization":
+"Bearer " + token
+
+}
+
+}
+
+);
+
+
+
+
+const data =
+await response.json();
+
+
+
+if(response.ok){
+
+
+alert(
+"Meeting deleted"
+);
+
+
+window.location.href =
+"meetings.html";
+
+
+}
+else{
+
+
+alert(data.detail);
+
+
+}
+
+
+
+};
+
+
+
+}
+
+catch(error){
+
+console.error(error);
+
+}
 
 
 
@@ -84,13 +501,285 @@ async function loadMeeting(){
 
 
 
+
+
+
+
+
+
+async function loadAudio(){
+
+
+
+try {
+
+
+
+const response =
+await fetch(
+
+`${API}/meetings/${meetingId}/audio`,
+
+{
+
+headers:{
+
+"Authorization":
+"Bearer " + token
+
+}
+
+}
+
+);
+
+
+
+
+
+
+
+if(!response.ok){
+
+
+console.log(
+await response.text()
+);
+
+
+throw new Error(
+"Audio failed"
+);
+
+
+}
+
+
+
+
+
+
+
+const blob =
+await response.blob();
+
+
+
+
+
+
+const audio =
+document.getElementById(
+"audio"
+);
+
+
+
+
+
+
+audio.src =
+URL.createObjectURL(blob);
+
+
+
+
+
+
+audio.style.display =
+"block";
+
+
+
+
+
+
+}
+
+catch(error){
+
+
+
+console.error(error);
+
+
+
+document.getElementById(
+"audioStatus"
+)
+.innerHTML =
+"Cannot load audio";
+
+
+
+}
+
+
+}
+
+const searchUserBtn =
+document.getElementById(
+    "searchUserBtn"
+);
+
+
+const participantEmail =
+document.getElementById(
+    "participantEmail"
+);
+
+
+const userResults =
+document.getElementById(
+    "userResults"
+);
+
+searchUserBtn.onclick =
+async ()=>{
+
+
+const email =
+participantEmail.value;
+
+
+
+if(!email)
+    return;
+
+
+
+
+const response =
+await fetch(
+`${API}/users/search?email=${email}`,
+{
+
+headers:{
+
+"Authorization":
+"Bearer " + token
+
+}
+
+}
+);
+
+
+
+const users =
+await response.json();
+
+
+
+
+userResults.innerHTML="";
+
+
+
+users.forEach(user=>{
+
+
+const button =
+document.createElement("button");
+
+
+button.innerHTML =
+`${user.name} - ${user.email}`;
+
+
+
+button.onclick = ()=>{
+
+
+    addUserToMeeting(user.id);
+
+
+};
+
+
+
+userResults.appendChild(button);
+
+
+
+});
+
+
+
+}
+async function addUserToMeeting(userId){
+
+
+const response =
+await fetch(
+
+`${API}/meetings/${meetingId}/participants?user_id=${userId}`,
+
+{
+
+method:"POST",
+
+headers:{
+
+"Authorization":
+"Bearer " + token
+
+}
+
+}
+
+);
+
+
+
+const data =
+await response.json();
+
+
+
+if(response.ok){
+
+
+alert(
+"Participant added successfully"
+);
+
+
+participantBox.style.display =
+"none";
+
+
+}
+else{
+
+
+alert(data.detail);
+
+
+}
+
+
+
+}
+
+
+
+
+
+
+
 loadMeeting();
+
+
+loadAudio();
 
 
 
 </script>
 
 
+
 </body>
+
 
 </html>

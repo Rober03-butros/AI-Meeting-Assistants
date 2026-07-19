@@ -7,6 +7,10 @@ from app.schemas.user import UserCreate, UserLogin
 from app.core.security import decode_token, hash_password, verify_password
 from app.services.token_blacklist import blacklist_token
 from app.services.verification import create_email_verification
+from app.core.security import verify_password,create_access_token,create_refresh_token
+from app.schemas.token import LogoutRequest, RefreshTokenRequest, TokenResponse
+
+
 
 def register_user(db: Session, user_data:UserCreate):
     existing_user = (
@@ -39,33 +43,13 @@ def register_user(db: Session, user_data:UserCreate):
     return user, verification
 
 
-from app.core.security import (
-    verify_password,
-    create_access_token,
-    create_refresh_token,
-)
-from app.schemas.token import LogoutRequest, RefreshTokenRequest, TokenResponse
-
-
-def login_user(
-    db: Session,
-    user_data: UserLogin
-) -> TokenResponse:
+def login_user(db: Session,user_data: UserLogin) -> TokenResponse:
 
     user = db.query(User).filter(
         User.email == user_data.email
     ).first()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
-
-    if not verify_password(
-        user_data.password,
-        user.hashed_password
-    ):
+    if not user or not verify_password(user_data.password,user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -78,7 +62,6 @@ def login_user(
     refresh = create_refresh_token(
         user.id
     )
-
 
     db_refresh_token = RefreshToken(
         user_id=user.id,
@@ -97,10 +80,7 @@ def login_user(
     )
 
 
-def refresh_access_token(
-    db: Session,
-    refresh_data: RefreshTokenRequest,
-):
+def refresh_access_token(db: Session,refresh_data: RefreshTokenRequest,):
 
     try:
         payload = decode_token(
@@ -153,11 +133,8 @@ def refresh_access_token(
         "token_type": "bearer",
     }
 
-def logout_user(
-    db: Session,
-    access_token: str,
-    refresh_token: str,
-):
+
+def logout_user(db: Session,access_token: str,refresh_token: str,):
 
     try:
         access_payload = decode_token(access_token)

@@ -2,7 +2,7 @@
 <html>
 
 <head>
-
+<!-- <script src="js/auth.js"></script> -->
 <title>
 My Meetings
 </title>
@@ -26,10 +26,14 @@ Logout
 <div id="meetings"></div>
 
 
+<button id="homeBtn">
+    Home
+</button>
+
 
 <script>
 
-
+// requireAuth();
 const token =
 localStorage.getItem("access_token");
 
@@ -77,6 +81,13 @@ async function loadMeetings(){
     const container =
     document.getElementById("meetings");
 
+    document.getElementById("homeBtn").onclick =
+    ()=>{
+
+        window.location.href =
+        "home.html";
+
+    };
 
 
     container.innerHTML = "";

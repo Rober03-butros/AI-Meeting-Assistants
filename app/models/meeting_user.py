@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     ForeignKey,
     String,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import (
     Mapped,
@@ -51,4 +52,12 @@ class MeetingUser(Base):
     user: Mapped["User"] = relationship(
         "User",
         back_populates="meetings",
+    )
+
+    __table_args__ = (
+    UniqueConstraint(
+        "meeting_id",
+        "user_id",
+        name="unique_meeting_user"
+    ),
     )

@@ -6,10 +6,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 
-def create_email_verification(
-    db: Session,
-    user: User,
-) -> EmailVerification:
+def create_email_verification(db: Session,user: User) -> EmailVerification:
 
     db.query(EmailVerification).filter(
         EmailVerification.user_id == user.id,
@@ -69,10 +66,7 @@ def verify_email_code(db: Session,user: User,code: str) -> None:
     db.commit()
 
 
-def resend_verification_code(
-    db: Session,
-    email: str
-):
+def resend_verification_code(db: Session,email: str):
 
     user = db.query(User).filter(
         User.email == email

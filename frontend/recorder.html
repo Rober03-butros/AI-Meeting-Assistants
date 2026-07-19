@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <title>AI Meeting Recorder</title>
-
+<!-- <script src="js/auth.js"></script> -->
 <style>
 body {
     font-family: Arial;
@@ -89,6 +89,13 @@ Start Recording
 Stop Recording
 </button>
 
+<button id="homeBtn">
+    Home
+</button>
+
+
+
+
 
 <video id="preview" autoplay playsinline muted></video>
 
@@ -98,7 +105,7 @@ Stop Recording
 
 
 <script>
-
+// requireAuth();
 
 let mediaRecorder;
 let mixedStream;
@@ -494,6 +501,12 @@ async function uploadRecording(){
     }
 
 }
+
+const homeBtn = document.getElementById("homeBtn");
+
+homeBtn.onclick = () => {
+    window.location.href = "home.html";
+};
 
 </script>
 

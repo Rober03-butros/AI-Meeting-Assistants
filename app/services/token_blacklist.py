@@ -5,11 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.token_blacklist import TokenBlacklist
 
 
-def blacklist_token(
-    db: Session,
-    jti: str,
-    exp: int,
-) -> None:
+def blacklist_token(db: Session,jti: str,exp: int) -> None:
 
     exists = (
         db.query(TokenBlacklist)
@@ -31,10 +27,7 @@ def blacklist_token(
     db.add(token)
 
 
-def is_blacklisted(
-    db: Session,
-    jti: str,
-) -> bool:
+def is_blacklisted(db: Session,jti: str,) -> bool:
 
     return (
         db.query(TokenBlacklist)

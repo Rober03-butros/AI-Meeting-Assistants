@@ -39,7 +39,7 @@ document.getElementById("emailText").innerText =
 
 async function verify() {
 
-    const response = await fetch(`${API}/auth/verify-email`, {
+    const response = await fetch(`${API}/verify/verify-email`, {
 
         method: "POST",
 
@@ -75,7 +75,7 @@ async function verify() {
 
 async function resendOTP() {
 
-    const response = await fetch(`${API}/auth/resend-verification`, {
+    const response = await fetch(`${API}/verify/resend-verification`, {
 
         method: "POST",
 
