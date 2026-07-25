@@ -54,6 +54,15 @@
 
         <div id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden>
           <div class="prose" id="transcript"></div>
+
+          <div class="transcribe-bar hidden" id="transcribeBar">
+            <div class="grow">
+              <div style="font-weight:650" id="transcribeTitle">Not transcribed yet</div>
+              <div class="faint" id="transcribeHint">Run the speech-to-text model on this recording.</div>
+            </div>
+            <button class="btn btn--primary" id="transcribeBtn" type="button">Transcribe</button>
+          </div>
+
           <div class="row" style="margin-top:14px">
             <button class="btn btn--sm btn--ghost" id="copyTranscript" type="button">Copy transcript</button>
             <button class="btn btn--sm btn--ghost" id="downloadTranscript" type="button">Download .txt</button>
@@ -116,6 +125,108 @@ if (requireAuth()) {
   };
 
   let meeting = null;
+  let transcript = '';
+
+  /* ---------- transcript state / gating ----------
+     The Transcribe button is enabled ONLY when there is no transcript.
+     Once one exists (or a run is in flight) it is permanently disabled. */
+  const tBar   = $('#transcribeBar');
+  const tBtn   = $('#transcribeBtn');
+  const tTitle = $('#transcribeTitle');
+  const tHint  = $('#transcribeHint');
+
+  function renderTranscript(text) {
+    transcript = (text || '').trim();
+    const has = !!transcript;
+
+    $('#transcript').innerHTML = has
+      ? escapeHtml(transcript)
+      : `<span class="muted">No transcript yet. Use the button below to generate one.</span>`;
+
+    // Gate the action row
+    $('#copyTranscript').disabled = !has;
+    $('#downloadTranscript').disabled = !has;
+
+    tBar.classList.remove('hidden');
+    tBar.classList.toggle('is-done', has);
+    tBtn.disabled = has;                       // <- the requested rule
+    tBtn.setAttribute('aria-disabled', String(has));
+
+    if (has) {
+      tBtn.innerHTML = `${icon('check', 17)} Transcribed`;
+      tBtn.title = 'This meeting already has a transcript';
+      tTitle.textContent = 'Transcript ready';
+      tHint.textContent = `${transcript.split(/\s+/).length.toLocaleString()} words.`;
+    } else {
+      tBtn.innerHTML = `${icon('sparkle', 17)} Transcribe`;
+      tBtn.title = 'Run speech-to-text on this recording';
+      tTitle.textContent = 'Not transcribed yet';
+      tHint.textContent = 'Run the speech-to-text model on this recording.';
+    }
+  }
+
+  /* ---------- run transcription (synchronous / long-running) ---------- */
+  let running = false;
+
+  const warnUnload = e => { e.preventDefault(); e.returnValue = ''; };
+
+  tBtn.onclick = async () => {
+    if (running || transcript) return;         // double-guard against double-submit
+    running = true;
+
+    busy(tBtn, true);
+    tTitle.textContent = 'Transcribing…';
+    tHint.textContent = 'The model is running on the server. Keep this tab open — this can take a few minutes.';
+    tBar.classList.add('is-running');
+    $('#transcript').innerHTML =
+      `<div class="skeleton skeleton--text"></div>
+       <div class="skeleton skeleton--text" style="width:92%"></div>
+       <div class="skeleton skeleton--text" style="width:78%"></div>`;
+    window.addEventListener('beforeunload', warnUnload);
+
+    // The default fetch has no timeout; a long model run must not be cut off,
+    // but we still bail out after 30 min rather than hanging forever.
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 30 * 60 * 1000);
+
+    try {
+      const res = await api(`/meetings/${encodeURIComponent(meetingId)}/transcribe`, {
+        method: 'POST',
+        signal: ctrl.signal,
+      });
+
+      // Accept whatever shape the backend returns.
+      const text = typeof res === 'string' ? res
+                 : res?.transcripts ?? res?.transcript ?? res?.text ?? '';
+
+      if (text && String(text).trim()) {
+        renderTranscript(String(text));
+        toast('Transcript generated', 'ok');
+      } else {
+        // Job accepted but body empty — re-read the meeting to pick it up.
+        const fresh = await api(`/meetings/${encodeURIComponent(meetingId)}`);
+        const t = typeof fresh.transcripts === 'string' ? fresh.transcripts : fresh.transcript;
+        if (t && t.trim()) { renderTranscript(t); toast('Transcript generated', 'ok'); }
+        else { renderTranscript(''); toast('Finished, but no transcript was returned.', 'info', 6000); }
+      }
+    } catch (err) {
+      if (err.status === 401) return;
+      renderTranscript('');                    // re-enables the button so they can retry
+      tTitle.textContent = 'Transcription failed';
+      tHint.textContent = err.name === 'AbortError'
+        ? 'Timed out after 30 minutes.'
+        : (err.message || 'Something went wrong.');
+      tBtn.innerHTML = `${icon('sparkle', 17)} Try again`;
+      toast(err.name === 'AbortError' ? 'Transcription timed out' : (err.message || 'Transcription failed'), 'error', 6000);
+    } finally {
+      clearTimeout(timeout);
+      window.removeEventListener('beforeunload', warnUnload);
+      tBar.classList.remove('is-running');
+      busy(tBtn, false);
+      tBtn.disabled = !!transcript;            // busy() clears disabled — reapply the gate
+      running = false;
+    }
+  };
 
   /* ---------- load meeting ---------- */
   (async () => {
@@ -131,19 +242,16 @@ if (requireAuth()) {
       $('#date').style.alignItems = 'center';
 
       const summary = (meeting.summary || '').trim();
-      const transcript = (typeof meeting.transcripts === 'string' ? meeting.transcripts
-                        : meeting.transcript || '').trim();
 
       $('#summary').innerHTML = summary
         ? escapeHtml(summary)
         : `<span class="muted">No summary yet — it appears once processing finishes.</span>`;
-      $('#transcript').innerHTML = transcript
-        ? escapeHtml(transcript)
-        : `<span class="muted">No transcript yet.</span>`;
+
+      // Sets the text AND gates the Transcribe button off the current state.
+      renderTranscript(typeof meeting.transcripts === 'string' ? meeting.transcripts
+                                                               : meeting.transcript);
 
       $('#copySummary').disabled = !summary;
-      $('#copyTranscript').disabled = !transcript;
-      $('#downloadTranscript').disabled = !transcript;
       $('#copySummary').onclick = () => copy(summary, 'Summary');
       $('#copyTranscript').onclick = () => copy(transcript, 'Transcript');
       $('#downloadTranscript').onclick = () => {

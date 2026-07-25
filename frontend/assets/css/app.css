@@ -816,6 +816,55 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 
 audio { width: 100%; border-radius: var(--r-sm); }
 
+/* Transcribe call-to-action */
+.transcribe-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 15px 17px;
+  border-radius: var(--r);
+  border: 1px dashed color-mix(in srgb, var(--brand) 45%, transparent);
+  background: color-mix(in srgb, var(--brand) 7%, transparent);
+  transition: border-color .25s, background .25s, opacity .25s;
+}
+.transcribe-bar .btn { flex: 0 0 auto; }
+@media (max-width: 480px) {
+  .transcribe-bar { flex-direction: column; align-items: stretch; text-align: left; }
+  .transcribe-bar .btn { width: 100%; }
+}
+
+/* Running: animated sheen */
+.transcribe-bar.is-running {
+  border-style: solid;
+  position: relative;
+  overflow: hidden;
+}
+.transcribe-bar.is-running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand) 16%, transparent), transparent);
+  animation: sweep 1.5s ease-in-out infinite;
+}
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* Done: fade back, button locked out */
+.transcribe-bar.is-done {
+  border-style: solid;
+  border-color: var(--border);
+  background: var(--surface);
+}
+.transcribe-bar.is-done .btn--primary {
+  background: none;
+  color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  box-shadow: none;
+}
+/* Make the disabled state read as "already done", not "broken" */
+.transcribe-bar.is-done .btn:disabled { opacity: 1; cursor: default; }
+
 .user-result {
   display: flex;
   align-items: center;
