@@ -1,516 +1,261 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<title>AI Meeting Recorder</title>
-<!-- <script src="js/auth.js"></script> -->
-<style>
-body {
-    font-family: Arial;
-    background:#08131f;
-    color:white;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    gap:15px;
-    padding-top:30px;
-}
-
-button {
-    padding:12px 20px;
-    font-size:16px;
-    border:none;
-    cursor:pointer;
-    border-radius:8px;
-    font-weight:bold;
-}
-
-#startBtn {
-    background:#00c7b7;
-    color:#000;
-}
-
-#stopBtn {
-    background:#ff3b3b;
-    color:white;
-}
-
-#meetBtn {
-    background:#4285F4;
-    color:white;
-}
-
-#stopBtn:disabled {
-    background:#555;
-}
-
-video {
-    width:80%;
-    max-width:900px;
-    border:2px solid #00c7b7;
-    border-radius:10px;
-    display:none;
-}
-
-#status {
-    margin-top:20px;
-    color:#00eaff;
-}
-</style>
-
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Recorder · AI Meeting Assistant</title>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
-
-
 <body>
 
+<header class="appbar" id="appbar"></header>
 
-<h2>
-AI Meeting Recorder
-</h2>
+<main class="page">
+  <div class="container--narrow stack" style="gap:20px">
 
+    <div class="reveal">
+      <h1 style="font-size:clamp(1.6rem,1.2rem+1.6vw,2.3rem)">Record a meeting</h1>
+      <p class="muted">Captures your shared tab/screen audio plus your microphone, mixed into one track.</p>
+    </div>
 
-<button id="meetBtn">
-Open Google Meet
-</button>
+    <div class="card reveal">
+      <div class="stack">
+        <div class="field">
+          <label class="label" for="title">Meeting name</label>
+          <input class="input" id="title" type="text" placeholder="Weekly product sync" maxlength="120" required>
+          <span class="field__error" id="titleErr"></span>
+        </div>
 
-<input 
-    id="meetingTitle"
-    placeholder="Meeting name"
-    type="text"
-/>
+        <div class="row">
+          <button class="btn grow" id="meetBtn" type="button">Open Google Meet</button>
+          <label class="row" style="gap:8px;cursor:pointer;font-size:.9rem" title="Mix your microphone into the recording">
+            <input type="checkbox" id="micToggle" checked style="width:18px;height:18px;accent-color:var(--brand)">
+            Include microphone
+          </label>
+        </div>
+      </div>
+    </div>
 
-<button id="startBtn">
-Start Recording
-</button>
+    <div class="card recorder-stage reveal">
+      <div class="rec-orb" id="orb">
+        <div class="rec-orb__inner" id="orbInner"></div>
+      </div>
 
+      <div class="stack-sm" style="justify-items:center">
+        <span class="badge" id="statusBadge"><span class="dot"></span> Idle</span>
+        <div class="timer" id="timer">00:00</div>
+        <div class="meter" aria-hidden="true"><div class="meter__fill" id="meter"></div></div>
+      </div>
 
-<button id="stopBtn" disabled>
-Stop Recording
-</button>
+      <div class="controls">
+        <button class="btn btn--primary" id="startBtn" type="button">Start recording</button>
+        <button class="btn btn--danger" id="stopBtn" type="button" disabled>Stop &amp; upload</button>
+      </div>
 
-<button id="homeBtn">
-    Home
-</button>
+      <p class="faint" id="hint" style="max-width:46ch">
+        Tip: in the share dialog choose the meeting tab and tick <strong>“Share tab audio”</strong>
+        so participants are captured.
+      </p>
+    </div>
 
+    <div class="card reveal hidden" id="resultCard">
+      <div class="card__head"><h3>Recording ready</h3></div>
+      <div class="stack">
+        <audio id="playback" controls preload="metadata"></audio>
+        <div class="row">
+          <a class="btn btn--sm" id="downloadBtn" download="meeting.webm">Download</a>
+          <button class="btn btn--sm btn--primary" id="retryUpload" type="button">Retry upload</button>
+        </div>
+      </div>
+    </div>
 
+  </div>
+</main>
 
+<script type="module">
+import { $, api, icon, toast, busy, requireAuth, mountAppBar,
+         confirmDialog, formatDuration } from './assets/js/app.js';
 
+if (requireAuth()) {
+  mountAppBar({ active: 'recorder' });
 
-<video id="preview" autoplay playsinline muted></video>
+  $('#orbInner').innerHTML = icon('mic', 48);
+  $('#meetBtn').insertAdjacentHTML('afterbegin', icon('video', 17));
+  $('#startBtn').insertAdjacentHTML('afterbegin', icon('mic', 17));
+  $('#stopBtn').insertAdjacentHTML('afterbegin', icon('stop', 17));
 
+  const orb = $('#orb'), badge = $('#statusBadge'), timerEl = $('#timer'), meter = $('#meter');
+  const startBtn = $('#startBtn'), stopBtn = $('#stopBtn');
 
-<div id="status"></div>
+  let recorder, chunks = [], tracks = [], audioCtx, rafId, tick, startedAt = 0, lastBlob = null;
 
+  const setStatus = (text, kind = '') => {
+    badge.className = `badge ${kind}`;
+    badge.innerHTML = `<span class="dot ${kind === 'badge--live' ? 'dot--pulse' : ''}"></span> ${text}`;
+  };
 
+  $('#meetBtn').onclick = () =>
+    window.open('https://meet.google.com', '_blank', 'noopener,width=1200,height=800');
 
-<script>
-// requireAuth();
+  /* ---------- start ---------- */
+  startBtn.onclick = async () => {
+    if (!$('#title').value.trim()) {
+      $('#titleErr').textContent = 'Give the meeting a name before recording.';
+      $('#title').focus();
+      return;
+    }
+    $('#titleErr').textContent = '';
 
-let mediaRecorder;
-let mixedStream;
-
-let chunks = [];
-
-
-const ACCESS_TOKEN = localStorage.getItem("access_token");
-
-if (!ACCESS_TOKEN) {
-    window.location.href = "login.html";
-}
-
-const API = "http://localhost:8000";
-const API_URL = `${API}/meetings/upload`;
-
-
-const preview =
-document.getElementById("preview");
-
-
-const startBtn =
-document.getElementById("startBtn");
-
-
-const stopBtn =
-document.getElementById("stopBtn");
-
-
-const meetBtn =
-document.getElementById("meetBtn");
-
-
-const status =
-document.getElementById("status");
-
-
-
-
-
-meetBtn.onclick = () => {
-
-    window.open(
-        "https://meet.google.com",
-        "_blank",
-        "width=1200,height=800"
-    );
-
-};
-
-
-
-
-
-
-startBtn.onclick = async () => {
-
-
-try {
-
-
-    chunks = [];
-
-
-    const screenStream =
-    await navigator.mediaDevices.getDisplayMedia({
-
-        video:true,
-
-        audio:true
-    });
-
-
-
-    let micStream;
-
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
+      toast('Your browser does not support screen recording. Try Chrome or Edge.', 'error', 6000);
+      return;
+    }
 
     try {
-
-        micStream =
-        await navigator.mediaDevices.getUserMedia({
-
-            audio:true
-
-        });
-
-
-    }
-    catch {
-
-        console.log(
-            "Microphone disabled"
-        );
-
-    }
-
-
-
-
-    const audioContext =
-    new AudioContext();
-
-
-    const destination =
-    audioContext.createMediaStreamDestination();
-
-
-
-
-
-    if(
-        screenStream.getAudioTracks().length
-    ){
-
-        const screenAudio =
-        audioContext.createMediaStreamSource(
-            screenStream
-        );
-
-
-        screenAudio.connect(
-            destination
-        );
-
-    }
-
-
-
-
-
-
-    if(
-        micStream &&
-        micStream.getAudioTracks().length
-    ){
-
-        const micAudio =
-        audioContext.createMediaStreamSource(
-            micStream
-        );
-
-
-        micAudio.connect(
-            destination
-        );
-
-    }
-
-
-
-
-
-    mixedStream =
-    new MediaStream([
-
-        ...destination.stream.getAudioTracks()
-
-    ]);
-
-
-
-
-
-
-    mediaRecorder =
-    new MediaRecorder(
-        mixedStream,
-        {
-            mimeType:"audio/webm"
-        }
-    );
-
-
-
-
-
-    mediaRecorder.ondataavailable =
-    event => {
-
-        if(event.data.size > 0){
-
-            chunks.push(event.data);
-
-        }
-
-    };
-
-
-
-
-
-
-    mediaRecorder.onstop =
-    uploadRecording;
-
-
-
-
-
-    mediaRecorder.start(1000);
-
-
-
-
-    status.innerHTML =
-    "Recording started...";
-
-
-
-    startBtn.disabled = true;
-
-    stopBtn.disabled = false;
-
-
-
-}
-
-catch(error){
-
-    console.error(error);
-
-    alert(
-        "Recording error: " + error
-    );
-
-}
-
-
-};
-
-
-
-
-
-
-
-
-stopBtn.onclick = () => {
-
-
-    mediaRecorder.stop();
-
-
-    if(mixedStream){
-
-        mixedStream
-        .getTracks()
-        .forEach(
-            track => track.stop()
-        );
-
-    }
-
-
-
-    status.innerHTML =
-    "Uploading...";
-
-
-    startBtn.disabled=false;
-
-    stopBtn.disabled=true;
-
-
-};
-
-
-
-
-
-
-
-async function uploadRecording(){
-
-    const title =
-        document.getElementById("meetingTitle").value;
-
-
-    if(!title){
-
-        alert("Please enter meeting name");
-
+      const screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      tracks = [...screen.getTracks()];
+
+      let mic = null;
+      if ($('#micToggle').checked) {
+        try {
+          mic = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
+          tracks.push(...mic.getTracks());
+        } catch { toast('Microphone unavailable — recording system audio only.', 'info'); }
+      }
+
+      if (!screen.getAudioTracks().length && !mic) {
+        tracks.forEach(t => t.stop());
+        toast('No audio captured. Re-share and enable “Share tab audio”.', 'error', 6000);
         return;
+      }
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = audioCtx.createMediaStreamDestination();
+      if (screen.getAudioTracks().length) audioCtx.createMediaStreamSource(screen).connect(dest);
+      if (mic?.getAudioTracks().length)   audioCtx.createMediaStreamSource(mic).connect(dest);
+
+      /* level meter */
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      audioCtx.createMediaStreamSource(dest.stream).connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const draw = () => {
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (const v of buf) peak = Math.max(peak, Math.abs(v - 128) / 128);
+        meter.style.width = `${Math.min(100, peak * 180)}%`;
+        rafId = requestAnimationFrame(draw);
+      };
+      draw();
+
+      const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+        .find(t => MediaRecorder.isTypeSupported(t)) || '';
+      chunks = [];
+      recorder = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : undefined);
+      recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = finish;
+      recorder.start(1000);
+
+      // user pressed the browser's own "Stop sharing"
+      screen.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (recorder?.state === 'recording') stopBtn.click();
+      });
+
+      startedAt = Date.now();
+      timerEl.textContent = '00:00';
+      tick = setInterval(() => {
+        timerEl.textContent = formatDuration((Date.now() - startedAt) / 1000);
+      }, 500);
+
+      orb.classList.add('is-recording');
+      orb.querySelector('.rec-orb__inner').innerHTML = icon('mic', 48);
+      setStatus('Recording', 'badge--live');
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      $('#resultCard').classList.add('hidden');
+      window.addEventListener('beforeunload', warn);
+    } catch (err) {
+      if (err.name === 'NotAllowedError') toast('Screen sharing permission was denied.', 'info');
+      else toast(err.message || 'Could not start recording', 'error');
+      cleanup();
     }
+  };
 
+  const warn = e => { e.preventDefault(); e.returnValue = ''; };
 
-    const blob =
-    new Blob(
-        chunks,
-        {
-            type:"audio/webm"
-        }
-    );
+  /* ---------- stop ---------- */
+  stopBtn.onclick = () => {
+    if (recorder?.state !== 'inactive') recorder.stop();
+    stopBtn.disabled = true;
+    setStatus('Processing…');
+  };
 
+  function cleanup() {
+    clearInterval(tick);
+    cancelAnimationFrame(rafId);
+    meter.style.width = '0%';
+    tracks.forEach(t => t.stop());
+    tracks = [];
+    audioCtx?.close().catch(() => {});
+    audioCtx = null;
+    orb.classList.remove('is-recording');
+    startBtn.disabled = false;
+    window.removeEventListener('beforeunload', warn);
+  }
 
-    const formData =
-    new FormData();
+  async function finish() {
+    cleanup();
+    lastBlob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
+    if (lastBlob.size < 1024) {
+      setStatus('Idle');
+      toast('Recording was empty — nothing to upload.', 'error');
+      return;
+    }
+    const url = URL.createObjectURL(lastBlob);
+    $('#playback').src = url;
+    $('#downloadBtn').href = url;
+    $('#resultCard').classList.remove('hidden');
+    await upload();
+  }
 
+  async function upload() {
+    const title = $('#title').value.trim();
+    if (!title || !lastBlob) return;
 
-    formData.append(
-        "file",
-        blob,
-        "meeting.webm"
-    );
+    setStatus('Uploading…');
+    busy($('#retryUpload'), true);
 
-
-    formData.append(
-        "title",
-        title
-    );
-
+    const form = new FormData();
+    form.append('file', lastBlob, 'meeting.webm');
+    form.append('title', title);
 
     try {
+      const data = await api('/meetings/upload', { method: 'POST', body: form });
+      setStatus('Uploaded', 'badge--brand');
+      toast('Meeting uploaded — transcription in progress.', 'ok');
+      setTimeout(() => {
+        location.href = data?.id ? `meeting.html?id=${encodeURIComponent(data.id)}` : 'meetings.html';
+      }, 1100);
+    } catch (err) {
+      if (err.status === 401) return;
+      setStatus('Upload failed');
+      toast(err.message || 'Upload failed — your recording is still downloadable below.', 'error', 6000);
+    } finally { busy($('#retryUpload'), false); }
+  }
 
+  $('#retryUpload').onclick = upload;
 
-        const response =
-        await fetch(
-            API_URL,
-            {
-                method:"POST",
-
-                headers:{
-                    "Authorization":
-                    "Bearer " + ACCESS_TOKEN
-                },
-
-                body:formData
-            }
-        );
-
-
-        if(response.status === 401){
-
-            localStorage.clear();
-
-            window.location.href =
-            "login.html";
-
-            return;
-        }
-
-
-
-        const data =
-        await response.json();
-
-
-        console.log(data);
-
-
-
-        if(response.ok){
-
-
-            status.innerHTML =
-            "Meeting created successfully. ID: "
-            + data.id;
-
-
-
-            setTimeout(()=>{
-
-                window.location.href =
-                "meetings.html";
-
-            },1000);
-
-
-
-        }
-        else{
-
-
-            status.innerHTML =
-            data.detail || "Upload failed";
-
-
-        }
-
-
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target === document.body) {
+      e.preventDefault();
+      (startBtn.disabled ? stopBtn : startBtn).click();
     }
-
-    catch(error){
-
-
-        console.error(error);
-
-
-        status.innerHTML =
-        "Upload failed";
-
-
-    }
-
+  });
 }
-
-const homeBtn = document.getElementById("homeBtn");
-
-homeBtn.onclick = () => {
-    window.location.href = "home.html";
-};
-
 </script>
-
-
 </body>
-
 </html>

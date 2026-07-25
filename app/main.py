@@ -4,6 +4,7 @@ from app.api.verification import router as verification_router
 from app.api.meeting import router as meeting_router
 from app.api.user import router as user_router
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -21,4 +22,4 @@ app.include_router(auth_router)
 app.include_router(verification_router)
 app.include_router(meeting_router)
 app.include_router(user_router)
-
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

@@ -1,74 +1,109 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <title>Login</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Sign in to AI Meeting Assistant — record, transcribe and summarise your meetings.">
+<title>Sign in · AI Meeting Assistant</title>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
 
-<h2>Login</h2>
+<main class="center-screen">
+  <div class="container--narrow" style="display:grid;place-items:center">
+    <form class="card card--auth stack reveal" id="form" novalidate>
 
-<input id="email" type="email" placeholder="Email">
-<br><br>
+      <div class="stack-sm text-center" style="justify-items:center">
+        <span class="brand__mark" style="width:52px;height:52px;border-radius:16px" id="logoSlot"></span>
+        <h1 style="font-size:1.7rem;margin-top:6px">Welcome back</h1>
+        <p class="muted">Sign in to continue to your meetings.</p>
+      </div>
 
-<input id="password" type="password" placeholder="Password">
-<br><br>
+      <div class="field">
+        <label class="label" for="email">Email address</label>
+        <input class="input" id="email" name="email" type="email" inputmode="email"
+               autocomplete="email" placeholder="you@company.com" required>
+        <span class="field__error" id="emailErr"></span>
+      </div>
 
-<button onclick="login()">Login</button>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <div class="input-group">
+          <input class="input" id="password" name="password" type="password"
+                 autocomplete="current-password" placeholder="••••••••" required>
+          <button class="input-group__btn" type="button" id="togglePw" aria-label="Show password"></button>
+        </div>
+        <span class="field__error" id="pwErr"></span>
+      </div>
 
-<p>
-    <a href="register.html">Register</a>
-</p>
+      <button class="btn btn--primary btn--block" type="submit" id="submitBtn">Sign in</button>
 
-<p id="result"></p>
+      <div class="divider">New here?</div>
 
-<script>
+      <a class="btn btn--block" href="register.html">Create an account</a>
+    </form>
+  </div>
+</main>
 
-const API = "http://localhost:8000";
+<script type="module">
+import { $, api, Tokens, toast, busy, icon, redirectIfAuthed } from './assets/js/app.js';
 
-async function login() {
+redirectIfAuthed();
 
-    const response = await fetch(`${API}/auth/login`, {
+$('#logoSlot').innerHTML = icon('logo', 26);
 
-        method: "POST",
+/* password visibility */
+const pw = $('#password'), toggle = $('#togglePw');
+const paintToggle = () => {
+  toggle.innerHTML = icon(pw.type === 'password' ? 'eye' : 'eyeOff', 18);
+  toggle.setAttribute('aria-label', pw.type === 'password' ? 'Show password' : 'Hide password');
+};
+paintToggle();
+toggle.onclick = () => { pw.type = pw.type === 'password' ? 'text' : 'password'; paintToggle(); };
 
-        headers: {
-            "Content-Type": "application/json"
-        },
+/* validation */
+const setErr = (input, slot, msg) => {
+  $(slot).textContent = msg || '';
+  input.setAttribute('aria-invalid', msg ? 'true' : 'false');
+  return !msg;
+};
+const validate = () => {
+  const okEmail = setErr($('#email'), '#emailErr',
+    /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test($('#email').value.trim()) ? '' : 'Enter a valid email address.');
+  const okPw = setErr(pw, '#pwErr', pw.value ? '' : 'Password is required.');
+  return okEmail && okPw;
+};
+$('#email').addEventListener('blur', validate);
 
-        body: JSON.stringify({
-            email: document.getElementById("email").value,
-            password: document.getElementById("password").value
-        })
+$('#form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!validate()) return;
 
+  const btn = $('#submitBtn');
+  busy(btn, true);
+  try {
+    const data = await api('/auth/login', {
+      auth: false,
+      method: 'POST',
+      body: { email: $('#email').value.trim(), password: pw.value },
     });
-
-    const data = await response.json();
-
-    if (response.ok) {
-
-        localStorage.setItem(
-            "access_token",
-            data.access_token
-        );
-
-        localStorage.setItem(
-            "refresh_token",
-            data.refresh_token
-        );
-
-        window.location.href = "home.html";
-
+    Tokens.set(data);
+    toast('Signed in successfully', 'ok', 1600);
+    const next = new URLSearchParams(location.search).get('next');
+    setTimeout(() => { location.href = next && !/^https?:/i.test(next) ? next : 'home.html'; }, 350);
+  } catch (err) {
+    if (/verif/i.test(err.message || '')) {
+      localStorage.setItem('verify_email', $('#email').value.trim());
+      toast('Please verify your email first.', 'info');
+      setTimeout(() => location.href = 'verify.html', 900);
     } else {
-
-        document.getElementById("result").innerText =
-            data.detail;
-
+      toast(err.message || 'Sign in failed', 'error');
+      setErr(pw, '#pwErr', 'Check your email and password.');
     }
-
-}
-
+  } finally { busy(btn, false); }
+});
 </script>
-
 </body>
 </html>

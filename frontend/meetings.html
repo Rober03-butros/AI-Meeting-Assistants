@@ -1,148 +1,120 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en" data-theme="dark">
 <head>
-<!-- <script src="js/auth.js"></script> -->
-<title>
-My Meetings
-</title>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>My meetings · AI Meeting Assistant</title>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
-
-
 <body>
 
+<header class="appbar" id="appbar"></header>
 
-<h2>
-My Meetings
-</h2>
+<main class="page">
+  <div class="container stack" style="gap:22px">
 
+    <div class="row row--between reveal">
+      <div>
+        <h1 style="font-size:clamp(1.6rem,1.2rem+1.6vw,2.3rem)">My meetings</h1>
+        <p class="muted" id="count">Loading…</p>
+      </div>
+      <a class="btn btn--primary" href="recorder.html" id="newBtn">New recording</a>
+    </div>
 
-<button onclick="logout()">
-Logout
-</button>
+    <div class="row reveal" style="gap:10px">
+      <div class="search-bar grow" style="min-width:220px">
+        <span id="searchIcon"></span>
+        <input class="input" id="search" type="search" placeholder="Search meetings by title…" aria-label="Search meetings">
+      </div>
+      <select class="input" id="sort" aria-label="Sort meetings" style="width:auto;min-width:170px">
+        <option value="new">Newest first</option>
+        <option value="old">Oldest first</option>
+        <option value="az">Title A–Z</option>
+      </select>
+    </div>
 
+    <div class="meeting-list reveal" id="list">
+      <div class="skeleton skeleton--card"></div>
+      <div class="skeleton skeleton--card"></div>
+      <div class="skeleton skeleton--card"></div>
+    </div>
 
-<div id="meetings"></div>
+  </div>
+</main>
 
+<script type="module">
+import { $, api, icon, requireAuth, mountAppBar, relativeTime,
+         formatDate, escapeHtml } from './assets/js/app.js';
 
-<button id="homeBtn">
-    Home
-</button>
+if (requireAuth()) {
+  mountAppBar({ active: 'meetings' });
+  $('#searchIcon').outerHTML = icon('search', 18);
+  $('#newBtn').insertAdjacentHTML('afterbegin', icon('plus', 17));
 
+  let all = [];
+  const list = $('#list');
 
-<script>
+  const render = () => {
+    const q = $('#search').value.trim().toLowerCase();
+    const sort = $('#sort').value;
 
-// requireAuth();
-const token =
-localStorage.getItem("access_token");
+    let rows = all.filter(m => (m.title || '').toLowerCase().includes(q));
+    rows.sort((a, b) =>
+      sort === 'az' ? (a.title || '').localeCompare(b.title || '')
+      : sort === 'old' ? new Date(a.created_at || 0) - new Date(b.created_at || 0)
+      : new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
+    $('#count').textContent = all.length
+      ? `${rows.length} of ${all.length} meeting${all.length === 1 ? '' : 's'}`
+      : 'No meetings yet';
 
-if(!token){
-
-    window.location.href =
-    "login.html";
-
-}
-
-
-
-async function loadMeetings(){
-
-
-    const response =
-    await fetch(
-        "http://localhost:8000/meetings",
-        {
-            headers:{
-                "Authorization":
-                "Bearer " + token
-            }
-        }
-    );
-
-
-    if(response.status === 401){
-
-        localStorage.clear();
-
-        window.location.href =
-        "login.html";
-
-        return;
+    if (!rows.length) {
+      list.innerHTML = `<div class="empty">
+        <div class="empty__icon">${icon(q ? 'search' : 'inbox', 28)}</div>
+        <h3>${q ? 'No matches' : 'No meetings yet'}</h3>
+        <p class="muted">${q ? 'Try a different search term.' : 'Record your first meeting and it will appear here.'}</p>
+        ${q ? '' : `<a class="btn btn--primary" href="recorder.html">${icon('mic', 17)} Start recording</a>`}
+      </div>`;
+      return;
     }
 
+    list.innerHTML = rows.map(m => `
+      <a class="meeting-card" href="meeting.html?id=${encodeURIComponent(m.id)}">
+        <span class="meeting-card__icon">${icon('doc', 20)}</span>
+        <span class="grow">
+          <span class="meeting-card__title" style="display:block">${escapeHtml(m.title || 'Untitled meeting')}</span>
+          <span class="meeting-card__meta" title="${escapeHtml(formatDate(m.created_at))}">
+            ${escapeHtml(relativeTime(m.created_at) || formatDate(m.created_at))}
+          </span>
+        </span>
+        ${m.summary ? `<span class="badge badge--brand">${icon('sparkle', 13)} Summary</span>` : ''}
+        <span class="meeting-card__chev">${icon('chevron', 18)}</span>
+      </a>`).join('');
+  };
 
-    const meetings =
-    await response.json();
+  const debounce = (fn, ms = 180) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
+  $('#search').addEventListener('input', debounce(render));
+  $('#sort').addEventListener('change', render);
 
-
-
-    const container =
-    document.getElementById("meetings");
-
-    document.getElementById("homeBtn").onclick =
-    ()=>{
-
-        window.location.href =
-        "home.html";
-
-    };
-
-
-    container.innerHTML = "";
-
-
-
-    meetings.forEach(meeting => {
-
-
-    const link =
-    document.createElement("a");
-
-
-    link.href =
-    `meeting.html?id=${meeting.id}`;
-
-
-    link.textContent =
-    meeting.title;
-
-
-    link.style.display = "block";
-    link.style.margin = "10px";
-    link.style.fontSize = "20px";
-
-
-    container.appendChild(link);
-
-
-});
-
-
-
+  (async () => {
+    try {
+      const data = await api('/meetings');
+      all = Array.isArray(data) ? data : (data?.items || []);
+      render();
+    } catch (err) {
+      if (err.status === 401) return;
+      $('#count').textContent = '';
+      list.innerHTML = `<div class="empty">
+        <div class="empty__icon">${icon('alert', 28)}</div>
+        <h3>Couldn't load your meetings</h3>
+        <p class="muted">${escapeHtml(err.message)}</p>
+        <button class="btn" onclick="location.reload()">Try again</button>
+      </div>`;
+    }
+  })();
 }
-
-
-
-function logout(){
-
-    localStorage.clear();
-
-    window.location.href =
-    "login.html";
-
-}
-
-
-
-loadMeetings();
-
-
-
 </script>
-
-
 </body>
-
 </html>

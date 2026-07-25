@@ -1,111 +1,124 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <title>Verify Account</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Verify email · AI Meeting Assistant</title>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
 
-<h2>Verify Account</h2>
+<main class="center-screen">
+  <div class="container--narrow" style="display:grid;place-items:center">
+    <form class="card card--auth stack reveal" id="form" novalidate>
 
-<p id="emailText"></p>
+      <div class="stack-sm text-center" style="justify-items:center">
+        <span class="brand__mark" style="width:52px;height:52px;border-radius:16px" id="logoSlot"></span>
+        <h1 style="font-size:1.7rem;margin-top:6px">Verify your email</h1>
+        <p class="muted">We sent a 6-digit code to<br><strong id="emailText" class="mono"></strong></p>
+      </div>
 
-<input id="otp" placeholder="OTP Code">
+      <div class="field">
+        <label class="label" for="otp-0">Verification code</label>
+        <div class="otp" id="otp">
+          <input id="otp-0" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
+          <input inputmode="numeric" maxlength="1" aria-label="Digit 2">
+          <input inputmode="numeric" maxlength="1" aria-label="Digit 3">
+          <input inputmode="numeric" maxlength="1" aria-label="Digit 4">
+          <input inputmode="numeric" maxlength="1" aria-label="Digit 5">
+          <input inputmode="numeric" maxlength="1" aria-label="Digit 6">
+        </div>
+        <span class="field__error" id="otpErr"></span>
+      </div>
 
-<br><br>
+      <button class="btn btn--primary btn--block" type="submit" id="verifyBtn">Verify account</button>
+      <button class="btn btn--block btn--ghost" type="button" id="resendBtn">Resend code</button>
 
-<button onclick="verify()">
-    Verify
-</button>
+      <p class="faint text-center">
+        Wrong address? <a href="register.html">Register again</a>
+      </p>
+    </form>
+  </div>
+</main>
 
-<button onclick="resendOTP()">
-    Resend OTP
-</button>
+<script type="module">
+import { $, $$, api, toast, busy, icon } from './assets/js/app.js';
 
-<p id="result"></p>
+const email = localStorage.getItem('verify_email');
+if (!email) location.replace('register.html');
 
-<script>
+$('#logoSlot').innerHTML = icon('mail', 26);
+$('#emailText').textContent = email;
 
-const API = "http://localhost:8000";
+/* ---- OTP box behaviour: autotab, backspace, paste ---- */
+const boxes = $$('#otp input');
+const code = () => boxes.map(b => b.value).join('');
 
-const email = localStorage.getItem("verify_email");
+boxes.forEach((box, i) => {
+  box.addEventListener('input', () => {
+    box.value = box.value.replace(/\D/g, '').slice(0, 1);
+    box.classList.toggle('filled', !!box.value);
+    if (box.value && i < boxes.length - 1) boxes[i + 1].focus();
+    if (code().length === 6) $('#form').requestSubmit();
+  });
+  box.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && !box.value && i > 0) { boxes[i - 1].focus(); boxes[i - 1].value = ''; boxes[i - 1].classList.remove('filled'); }
+    if (e.key === 'ArrowLeft'  && i > 0) boxes[i - 1].focus();
+    if (e.key === 'ArrowRight' && i < boxes.length - 1) boxes[i + 1].focus();
+  });
+  box.addEventListener('paste', e => {
+    e.preventDefault();
+    const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6).split('');
+    digits.forEach((d, k) => { if (boxes[k]) { boxes[k].value = d; boxes[k].classList.add('filled'); } });
+    boxes[Math.min(digits.length, 5)].focus();
+    if (code().length === 6) $('#form').requestSubmit();
+  });
+});
+boxes[0].focus();
 
-if (!email) {
-    window.location.href = "register.html";
-}
+/* ---- resend cooldown ---- */
+let cooldown = 0;
+const resend = $('#resendBtn');
+const tick = () => {
+  if (cooldown <= 0) { resend.disabled = false; resend.textContent = 'Resend code'; return; }
+  resend.disabled = true;
+  resend.textContent = `Resend code in ${cooldown}s`;
+  cooldown--;
+  setTimeout(tick, 1000);
+};
 
-document.getElementById("emailText").innerText =
-    "Email: " + email;
+resend.onclick = async () => {
+  busy(resend, true);
+  try {
+    await api('/verify/resend-verification', { auth: false, method: 'POST', body: { email } });
+    toast('A new code is on its way.', 'ok');
+    cooldown = 45;
+  } catch (err) {
+    toast(err.message || 'Could not resend the code', 'error');
+  } finally { busy(resend, false); tick(); }
+};
 
-async function verify() {
-
-    const response = await fetch(`${API}/verify/verify-email`, {
-
-        method: "POST",
-
-        headers: {
-            "Content-Type": "application/json"
-        },
-
-        body: JSON.stringify({
-            email: email,
-            code: document.getElementById("otp").value
-        })
-
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-
-        alert("Account verified successfully.");
-
-        localStorage.removeItem("verify_email");
-
-        window.location.href = "login.html";
-
-    } else {
-
-        document.getElementById("result").innerText =
-            data.detail;
-
-    }
-
-}
-
-async function resendOTP() {
-
-    const response = await fetch(`${API}/verify/resend-verification`, {
-
-        method: "POST",
-
-        headers: {
-            "Content-Type": "application/json"
-        },
-
-        body: JSON.stringify({
-            email: email
-        })
-
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-
-        document.getElementById("result").innerText =
-            "A new OTP has been sent to your email.";
-
-    } else {
-
-        document.getElementById("result").innerText =
-            data.detail;
-
-    }
-
-}
-
+/* ---- submit ---- */
+$('#form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (code().length !== 6) { $('#otpErr').textContent = 'Enter all 6 digits.'; return; }
+  $('#otpErr').textContent = '';
+  const btn = $('#verifyBtn');
+  busy(btn, true);
+  try {
+    await api('/verify/verify-email', { auth: false, method: 'POST', body: { email, code: code() } });
+    localStorage.removeItem('verify_email');
+    toast('Email verified — you can sign in now.', 'ok');
+    setTimeout(() => location.href = 'login.html', 800);
+  } catch (err) {
+    $('#otpErr').textContent = err.message || 'Invalid or expired code.';
+    boxes.forEach(b => { b.value = ''; b.classList.remove('filled'); });
+    boxes[0].focus();
+    toast(err.message || 'Verification failed', 'error');
+  } finally { busy(btn, false); }
+});
 </script>
-
 </body>
 </html>

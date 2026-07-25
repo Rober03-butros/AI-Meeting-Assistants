@@ -1,785 +1,259 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="en" data-theme="dark">
 <head>
-
 <meta charset="UTF-8">
-
-<title>Meeting Details</title>
-
-
-<style>
-
-body {
-
-    font-family: Arial;
-    padding: 30px;
-
-}
-
-
-h2 {
-
-    margin-bottom:20px;
-
-}
-
-
-.section {
-
-    margin-top:25px;
-
-}
-
-
-audio {
-
-    margin-top:10px;
-    width:400px;
-
-}
-
-
-button {
-
-    padding:10px 15px;
-    cursor:pointer;
-
-}
-
-
-#participantBox {
-
-    margin-top:15px;
-
-}
-
-
-</style>
-
-
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Meeting · AI Meeting Assistant</title>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
-
-
-
 <body>
 
-
-
-<h2 id="title">
-Loading...
-</h2>
-
-
-
-<p>
-Created at:
-<span id="date"></span>
-</p>
-
-
-
-
-<div class="section">
-
-<h3>
-Transcript
-</h3>
-
-
-<p id="transcript">
-No transcript yet
-</p>
-
-
-</div>
-
-
-
-
-
-
-<div class="section">
-
-<h3>
-Summary
-</h3>
-
-
-<p id="summary">
-No summary yet
-</p>
-
-
-</div>
-
-
-
-
-
-
-
-<div class="section">
-
-
-<h3>
-Recording
-</h3>
-
-
-<audio
-id="audio"
-controls
-style="display:none;">
-</audio>
-
-
-<p id="audioStatus"></p>
-
-
-</div>
-
-
-
-
-
-
-
-<!-- يظهر فقط للـ owner -->
-
-<button 
-id="deleteBtn"
-style="display:none;background:red;color:white;"
->
-Delete Meeting
-</button>
-
-
-<!-- يظهر فقط للـ owner -->
-
-<button id="addParticipantBtn" style="display:none;">
-    Add Participant
-</button>
-
-
-
-<div id="participantBox" style="display:none;">
-
-
-<input 
-    id="participantEmail"
-    placeholder="User email"
-/>
-
-
-<button id="searchUserBtn">
-    Search
-</button>
-
-
-
-<div id="userResults"></div>
-
-
-</div>
-
-
-
-
-
-
-<br><br>
-
-
-<button id="homeBtn">
-    Home
-</button>
-
-
-
-
-
-
-
-<script>
-
-
-
-const token =
-localStorage.getItem(
-    "access_token"
-);
-
-
-
-if(!token){
-
-    window.location.href =
-    "login.html";
-
+<header class="appbar" id="appbar"></header>
+
+<main class="page">
+  <div class="container stack" style="gap:20px">
+
+    <a class="faint row" href="meetings.html" style="gap:6px;width:max-content" id="backLink">Back to meetings</a>
+
+    <div class="row row--between reveal" style="align-items:flex-start">
+      <div class="grow">
+        <h1 id="title" style="font-size:clamp(1.5rem,1.1rem+1.6vw,2.2rem)">
+          <span class="skeleton skeleton--title" style="display:block"></span>
+        </h1>
+        <div class="row faint" style="gap:10px;margin-top:6px">
+          <span id="date"></span>
+          <span id="ownerBadge"></span>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn btn--sm hidden" id="addParticipantBtn" type="button">Add participant</button>
+        <button class="btn btn--sm btn--danger hidden" id="deleteBtn" type="button">Delete</button>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+
+      <section class="card reveal">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" id="tab-summary"    aria-selected="true"  data-panel="panel-summary">Summary</button>
+          <button class="tab" role="tab" id="tab-transcript" aria-selected="false" data-panel="panel-transcript">Transcript</button>
+        </div>
+
+        <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary">
+          <div class="prose" id="summary">
+            <div class="skeleton skeleton--text"></div>
+            <div class="skeleton skeleton--text" style="width:88%"></div>
+            <div class="skeleton skeleton--text" style="width:72%"></div>
+          </div>
+          <div class="row" style="margin-top:14px">
+            <button class="btn btn--sm btn--ghost" id="copySummary" type="button">Copy summary</button>
+          </div>
+        </div>
+
+        <div id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden>
+          <div class="prose" id="transcript"></div>
+          <div class="row" style="margin-top:14px">
+            <button class="btn btn--sm btn--ghost" id="copyTranscript" type="button">Copy transcript</button>
+            <button class="btn btn--sm btn--ghost" id="downloadTranscript" type="button">Download .txt</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="stack detail-grid__side reveal">
+        <div class="panel stack">
+          <div class="card__head" style="margin:0"><h3>Audio</h3></div>
+          <audio id="audio" controls preload="none" class="hidden"></audio>
+          <p class="faint" id="audioStatus">Loading audio…</p>
+        </div>
+
+        <div class="panel stack hidden" id="participantBox">
+          <div class="card__head" style="margin:0"><h3>Add participant</h3></div>
+          <div class="field">
+            <label class="label sr-only" for="participantEmail">Search by email</label>
+            <div class="row" style="gap:8px;flex-wrap:nowrap">
+              <input class="input grow" id="participantEmail" type="email" placeholder="teammate@company.com">
+              <button class="btn btn--icon btn--primary" id="searchUserBtn" type="button" aria-label="Search"></button>
+            </div>
+          </div>
+          <div class="stack-sm" id="userResults"></div>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { $, $$, api, icon, toast, busy, requireAuth, mountAppBar, confirmDialog,
+         formatDate, relativeTime, escapeHtml, initials, Tokens, CONFIG } from './assets/js/app.js';
+
+if (requireAuth()) {
+  mountAppBar({ active: 'meetings' });
+
+  const meetingId = new URLSearchParams(location.search).get('id');
+  if (!meetingId) location.replace('meetings.html');
+
+  $('#backLink').insertAdjacentHTML('afterbegin', icon('chevron', 15).replace('<svg', '<svg style="transform:rotate(180deg)"'));
+  $('#deleteBtn').insertAdjacentHTML('afterbegin', icon('trash', 16));
+  $('#addParticipantBtn').insertAdjacentHTML('afterbegin', icon('users', 16));
+  $('#searchUserBtn').innerHTML = icon('search', 18);
+
+  /* ---------- tabs ---------- */
+  const tabs = $$('.tab');
+  tabs.forEach(t => t.onclick = () => {
+    tabs.forEach(o => {
+      const on = o === t;
+      o.setAttribute('aria-selected', on);
+      $('#' + o.dataset.panel).hidden = !on;
+    });
+  });
+
+  const copy = async (text, label) => {
+    try { await navigator.clipboard.writeText(text); toast(`${label} copied`, 'ok', 1800); }
+    catch { toast('Copy failed', 'error'); }
+  };
+
+  let meeting = null;
+
+  /* ---------- load meeting ---------- */
+  (async () => {
+    try {
+      meeting = await api(`/meetings/${encodeURIComponent(meetingId)}`);
+
+      const title = meeting.title || 'Untitled meeting';
+      document.title = `${title} · AI Meeting Assistant`;
+      $('#title').textContent = title;
+      $('#date').innerHTML = `${icon('clock', 14)} ${escapeHtml(formatDate(meeting.created_at))} · ${escapeHtml(relativeTime(meeting.created_at) || '')}`;
+      $('#date').style.display = 'inline-flex';
+      $('#date').style.gap = '6px';
+      $('#date').style.alignItems = 'center';
+
+      const summary = (meeting.summary || '').trim();
+      const transcript = (typeof meeting.transcripts === 'string' ? meeting.transcripts
+                        : meeting.transcript || '').trim();
+
+      $('#summary').innerHTML = summary
+        ? escapeHtml(summary)
+        : `<span class="muted">No summary yet — it appears once processing finishes.</span>`;
+      $('#transcript').innerHTML = transcript
+        ? escapeHtml(transcript)
+        : `<span class="muted">No transcript yet.</span>`;
+
+      $('#copySummary').disabled = !summary;
+      $('#copyTranscript').disabled = !transcript;
+      $('#downloadTranscript').disabled = !transcript;
+      $('#copySummary').onclick = () => copy(summary, 'Summary');
+      $('#copyTranscript').onclick = () => copy(transcript, 'Transcript');
+      $('#downloadTranscript').onclick = () => {
+        const url = URL.createObjectURL(new Blob([transcript], { type: 'text/plain' }));
+        const a = Object.assign(document.createElement('a'), { href: url, download: `${title}.txt` });
+        a.click(); URL.revokeObjectURL(url);
+      };
+
+      if (meeting.is_owner) {
+        $('#ownerBadge').outerHTML = `<span class="badge badge--brand">${icon('user', 13)} Owner</span>`;
+        $('#addParticipantBtn').classList.remove('hidden');
+        $('#deleteBtn').classList.remove('hidden');
+      }
+    } catch (err) {
+      if (err.status === 401) return;
+      $('#title').textContent = 'Meeting unavailable';
+      $('#summary').innerHTML = `<span class="muted">${escapeHtml(err.message)}</span>`;
+      toast(err.message || 'Could not load this meeting', 'error');
+    }
+  })();
+
+  /* ---------- audio ---------- */
+  (async () => {
+    try {
+      const res = await api(`/meetings/${encodeURIComponent(meetingId)}/audio`, { raw: true });
+      const url = URL.createObjectURL(await res.blob());
+      const audio = $('#audio');
+      audio.src = url;
+      audio.classList.remove('hidden');
+      $('#audioStatus').classList.add('hidden');
+    } catch (err) {
+      if (err.status === 401) return;
+      $('#audioStatus').textContent = 'Audio is not available for this meeting.';
+    }
+  })();
+
+  /* ---------- delete ---------- */
+  $('#deleteBtn').onclick = async () => {
+    const ok = await confirmDialog({
+      title: 'Delete this meeting?',
+      body: 'The recording, transcript and summary will be permanently removed.',
+      confirmText: 'Delete', danger: true,
+    });
+    if (!ok) return;
+    busy($('#deleteBtn'), true);
+    try {
+      await api(`/meetings/${encodeURIComponent(meetingId)}`, { method: 'DELETE' });
+      toast('Meeting deleted', 'ok');
+      setTimeout(() => location.href = 'meetings.html', 600);
+    } catch (err) {
+      toast(err.message || 'Delete failed', 'error');
+    } finally { busy($('#deleteBtn'), false); }
+  };
+
+  /* ---------- participants ---------- */
+  $('#addParticipantBtn').onclick = () => {
+    $('#participantBox').classList.toggle('hidden');
+    if (!$('#participantBox').classList.contains('hidden')) $('#participantEmail').focus();
+  };
+
+  const results = $('#userResults');
+
+  const search = async () => {
+    const email = $('#participantEmail').value.trim();
+    if (!email) return;
+    busy($('#searchUserBtn'), true);
+    results.innerHTML = '';
+    try {
+      const data = await api(`/users/search?email=${encodeURIComponent(email)}`);
+      const users = Array.isArray(data) ? data : (data ? [data] : []);
+      if (!users.length) {
+        results.innerHTML = `<p class="faint">No user found with that email.</p>`;
+        return;
+      }
+      users.forEach(u => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'user-result';
+        btn.innerHTML = `
+          <span class="avatar" style="width:34px;height:34px;font-size:.78rem">${escapeHtml(initials(u.name || u.email))}</span>
+          <span class="grow" style="min-width:0">
+            <span style="display:block;font-weight:600">${escapeHtml(u.name || 'Unnamed')}</span>
+            <span class="faint mono" style="display:block;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.email || '')}</span>
+          </span>
+          ${icon('plus', 17)}`;
+        btn.onclick = () => addUser(u.id, btn);
+        results.append(btn);
+      });
+    } catch (err) {
+      if (err.status !== 401) results.innerHTML = `<p class="faint">${escapeHtml(err.message)}</p>`;
+    } finally { busy($('#searchUserBtn'), false); }
+  };
+
+  $('#searchUserBtn').onclick = search;
+  $('#participantEmail').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+
+  async function addUser(userId, btn) {
+    btn.disabled = true;
+    try {
+      await api(`/meetings/${encodeURIComponent(meetingId)}/participants?user_id=${encodeURIComponent(userId)}`,
+                { method: 'POST' });
+      toast('Participant added', 'ok');
+      btn.innerHTML = `<span class="grow">Added</span>${icon('check', 17)}`;
+      setTimeout(() => { $('#participantBox').classList.add('hidden'); results.innerHTML = ''; $('#participantEmail').value = ''; }, 900);
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message || 'Could not add participant', 'error');
+    }
+  }
 }
-
-
-
-const deleteBtn =
-document.getElementById(
-    "deleteBtn"
-);
-
-const API =
-"http://localhost:8000";
-
-
-
-
-const params =
-new URLSearchParams(
-    window.location.search
-);
-
-
-
-const meetingId =
-params.get("id");
-
-
-
-
-
-
-const addParticipantBtn =
-document.getElementById(
-    "addParticipantBtn"
-);
-
-
-
-const participantBox =
-document.getElementById(
-    "participantBox"
-);
-
-
-
-
-
-
-
-document.getElementById("homeBtn").onclick =
-()=>{
-
-    window.location.href =
-    "home.html";
-
-};
-
-
-
-
-
-
-
-
-
-addParticipantBtn.onclick =
-()=>{
-
-
-    participantBox.style.display =
-    "block";
-
-
-};
-
-
-
-
-
-
-
-
-
-async function loadMeeting(){
-
-
-
-try {
-
-
-
-const response =
-await fetch(
-
-`${API}/meetings/${meetingId}`,
-
-{
-
-headers:{
-
-"Authorization":
-"Bearer " + token
-
-}
-
-}
-
-);
-
-
-
-
-
-
-if(!response.ok){
-
-
-console.log(
-await response.text()
-);
-
-
-return;
-
-}
-
-
-
-
-
-const meeting =
-await response.json();
-
-
-
-
-console.log(meeting);
-
-
-
-
-
-
-
-document.getElementById("title")
-.innerHTML =
-meeting.title;
-
-
-
-
-
-
-document.getElementById("date")
-.innerHTML =
-meeting.created_at;
-
-
-
-
-
-
-document.getElementById("transcript")
-.innerHTML =
-meeting.transcripts ||
-"No transcript yet";
-
-
-
-
-
-
-document.getElementById("summary")
-.innerHTML =
-meeting.summary ||
-"No summary yet";
-
-
-
-
-
-
-
-if(meeting.is_owner){
-
-
-addParticipantBtn.style.display =
-"block";
-
-
-}
-
-if(meeting.is_owner){
-
-    deleteBtn.style.display =
-    "block";
-
-}
-
-deleteBtn.onclick =
-async ()=>{
-
-
-const confirmDelete =
-confirm(
-"Are you sure you want to delete this meeting?"
-);
-
-
-
-if(!confirmDelete)
-    return;
-
-
-
-
-const response =
-await fetch(
-
-`${API}/meetings/${meetingId}`,
-
-{
-
-method:"DELETE",
-
-headers:{
-
-"Authorization":
-"Bearer " + token
-
-}
-
-}
-
-);
-
-
-
-
-const data =
-await response.json();
-
-
-
-if(response.ok){
-
-
-alert(
-"Meeting deleted"
-);
-
-
-window.location.href =
-"meetings.html";
-
-
-}
-else{
-
-
-alert(data.detail);
-
-
-}
-
-
-
-};
-
-
-
-}
-
-catch(error){
-
-console.error(error);
-
-}
-
-
-
-}
-
-
-
-
-
-
-
-
-
-async function loadAudio(){
-
-
-
-try {
-
-
-
-const response =
-await fetch(
-
-`${API}/meetings/${meetingId}/audio`,
-
-{
-
-headers:{
-
-"Authorization":
-"Bearer " + token
-
-}
-
-}
-
-);
-
-
-
-
-
-
-
-if(!response.ok){
-
-
-console.log(
-await response.text()
-);
-
-
-throw new Error(
-"Audio failed"
-);
-
-
-}
-
-
-
-
-
-
-
-const blob =
-await response.blob();
-
-
-
-
-
-
-const audio =
-document.getElementById(
-"audio"
-);
-
-
-
-
-
-
-audio.src =
-URL.createObjectURL(blob);
-
-
-
-
-
-
-audio.style.display =
-"block";
-
-
-
-
-
-
-}
-
-catch(error){
-
-
-
-console.error(error);
-
-
-
-document.getElementById(
-"audioStatus"
-)
-.innerHTML =
-"Cannot load audio";
-
-
-
-}
-
-
-}
-
-const searchUserBtn =
-document.getElementById(
-    "searchUserBtn"
-);
-
-
-const participantEmail =
-document.getElementById(
-    "participantEmail"
-);
-
-
-const userResults =
-document.getElementById(
-    "userResults"
-);
-
-searchUserBtn.onclick =
-async ()=>{
-
-
-const email =
-participantEmail.value;
-
-
-
-if(!email)
-    return;
-
-
-
-
-const response =
-await fetch(
-`${API}/users/search?email=${email}`,
-{
-
-headers:{
-
-"Authorization":
-"Bearer " + token
-
-}
-
-}
-);
-
-
-
-const users =
-await response.json();
-
-
-
-
-userResults.innerHTML="";
-
-
-
-users.forEach(user=>{
-
-
-const button =
-document.createElement("button");
-
-
-button.innerHTML =
-`${user.name} - ${user.email}`;
-
-
-
-button.onclick = ()=>{
-
-
-    addUserToMeeting(user.id);
-
-
-};
-
-
-
-userResults.appendChild(button);
-
-
-
-});
-
-
-
-}
-async function addUserToMeeting(userId){
-
-
-const response =
-await fetch(
-
-`${API}/meetings/${meetingId}/participants?user_id=${userId}`,
-
-{
-
-method:"POST",
-
-headers:{
-
-"Authorization":
-"Bearer " + token
-
-}
-
-}
-
-);
-
-
-
-const data =
-await response.json();
-
-
-
-if(response.ok){
-
-
-alert(
-"Participant added successfully"
-);
-
-
-participantBox.style.display =
-"none";
-
-
-}
-else{
-
-
-alert(data.detail);
-
-
-}
-
-
-
-}
-
-
-
-
-
-
-
-loadMeeting();
-
-
-loadAudio();
-
-
-
 </script>
-
-
-
 </body>
-
-
 </html>

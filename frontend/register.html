@@ -1,79 +1,121 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <title>Register</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Create your AI Meeting Assistant account.">
+<title>Create account · AI Meeting Assistant</title>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
 
-<h2>Register</h2>
+<main class="center-screen">
+  <div class="container--narrow" style="display:grid;place-items:center">
+    <form class="card card--auth stack reveal" id="form" novalidate>
 
-<input id="name" placeholder="Name">
-<br><br>
+      <div class="stack-sm text-center" style="justify-items:center">
+        <span class="brand__mark" style="width:52px;height:52px;border-radius:16px" id="logoSlot"></span>
+        <h1 style="font-size:1.7rem;margin-top:6px">Create your account</h1>
+        <p class="muted">Start recording and summarising meetings in minutes.</p>
+      </div>
 
-<input id="email" type="email" placeholder="Email">
-<br><br>
+      <div class="field">
+        <label class="label" for="name">Full name</label>
+        <input class="input" id="name" type="text" autocomplete="name" placeholder="Ada Lovelace" required>
+        <span class="field__error" id="nameErr"></span>
+      </div>
 
-<input id="password" type="password" placeholder="Password">
-<br><br>
+      <div class="field">
+        <label class="label" for="email">Email address</label>
+        <input class="input" id="email" type="email" inputmode="email" autocomplete="email"
+               placeholder="you@company.com" required>
+        <span class="field__error" id="emailErr"></span>
+      </div>
 
-<button onclick="register()">Register</button>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <div class="input-group">
+          <input class="input" id="password" type="password" autocomplete="new-password"
+                 placeholder="At least 8 characters" required minlength="8">
+          <button class="input-group__btn" type="button" id="togglePw" aria-label="Show password"></button>
+        </div>
+        <div class="strength" id="strength" data-score="0">
+          <div class="strength__bars"><i></i><i></i><i></i><i></i></div>
+          <span class="faint" id="strengthText">Use 8+ characters with letters, numbers &amp; symbols.</span>
+        </div>
+        <span class="field__error" id="pwErr"></span>
+      </div>
 
-<p>
-    <a href="login.html">Login</a>
-</p>
+      <button class="btn btn--primary btn--block" type="submit" id="submitBtn">Create account</button>
 
-<p id="result"></p>
+      <div class="divider">Already registered?</div>
+      <a class="btn btn--block" href="login.html">Sign in instead</a>
+    </form>
+  </div>
+</main>
 
-<script>
+<script type="module">
+import { $, api, toast, busy, icon, redirectIfAuthed } from './assets/js/app.js';
 
-const API = "http://localhost:8000";
+redirectIfAuthed();
+$('#logoSlot').innerHTML = icon('logo', 26);
 
-async function register() {
+const pw = $('#password'), toggle = $('#togglePw');
+const paintToggle = () => {
+  toggle.innerHTML = icon(pw.type === 'password' ? 'eye' : 'eyeOff', 18);
+  toggle.setAttribute('aria-label', pw.type === 'password' ? 'Show password' : 'Hide password');
+};
+paintToggle();
+toggle.onclick = () => { pw.type = pw.type === 'password' ? 'text' : 'password'; paintToggle(); };
 
-    const response = await fetch(`${API}/auth/register`, {
+/* strength meter */
+const LABELS = ['Too short', 'Weak password', 'Fair password', 'Good password', 'Strong password'];
+pw.addEventListener('input', () => {
+  const v = pw.value;
+  let score = 0;
+  if (v.length >= 8) score++;
+  if (/[a-z]/.test(v) && /[A-Z]/.test(v)) score++;
+  if (/\d/.test(v)) score++;
+  if (/[^\w\s]/.test(v)) score++;
+  if (v.length < 8) score = Math.min(score, 1);
+  $('#strength').dataset.score = v ? score : 0;
+  $('#strengthText').textContent = v ? LABELS[score] : 'Use 8+ characters with letters, numbers & symbols.';
+});
 
-        method: "POST",
+const setErr = (input, slot, msg) => {
+  $(slot).textContent = msg || '';
+  input.setAttribute('aria-invalid', msg ? 'true' : 'false');
+  return !msg;
+};
+const validate = () => {
+  const a = setErr($('#name'),  '#nameErr',  $('#name').value.trim().length >= 2 ? '' : 'Please enter your name.');
+  const b = setErr($('#email'), '#emailErr', /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test($('#email').value.trim()) ? '' : 'Enter a valid email address.');
+  const c = setErr(pw, '#pwErr', pw.value.length >= 8 ? '' : 'Password must be at least 8 characters.');
+  return a && b && c;
+};
+['#name', '#email'].forEach(s => $(s).addEventListener('blur', validate));
 
-        headers: {
-            "Content-Type":"application/json"
-        },
-
-        body: JSON.stringify({
-
-            name: document.getElementById("name").value,
-
-            email: document.getElementById("email").value,
-
-            password: document.getElementById("password").value
-
-        })
-
+$('#form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!validate()) return;
+  const btn = $('#submitBtn');
+  busy(btn, true);
+  const email = $('#email').value.trim();
+  try {
+    await api('/auth/register', {
+      auth: false,
+      method: 'POST',
+      body: { name: $('#name').value.trim(), email, password: pw.value },
     });
-
-    const data = await response.json();
-
-    if(response.ok){
-
-        alert("Registered successfully");
-
-        localStorage.setItem(
-            "verify_email",
-            document.getElementById("email").value
-        );
-
-        window.location.href = "verify.html";
-
-    }else{
-
-        document.getElementById("result").innerText =
-            data.detail;
-
-    }
-
-}
-
+    localStorage.setItem('verify_email', email);
+    toast('Account created — check your inbox for the code.', 'ok');
+    setTimeout(() => location.href = 'verify.html', 800);
+  } catch (err) {
+    toast(err.message || 'Registration failed', 'error');
+  } finally { busy(btn, false); }
+});
 </script>
-
 </body>
 </html>
