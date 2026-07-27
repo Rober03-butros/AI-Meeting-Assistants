@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool
 
     WHISPER_MODEL_PATH: str
+    
+    HF_TOKEN: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
