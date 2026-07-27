@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException
 from pathlib import Path
 
 from fastapi import UploadFile, File, Depends
@@ -13,6 +13,7 @@ from app.models.user import User
 
 from app.schemas.meeting import MeetingResponse
 from app.services.meeting_services import create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
+from app.services.transcription import run_transcription
 
 
 router = APIRouter(
@@ -85,6 +86,8 @@ def get_meeting(
         "created_at": meeting.created_at,
 
         "transcripts": meeting.transcript,
+
+        "transcript_status": meeting.transcript_status,
 
         "summary": meeting.summary,
 
@@ -259,3 +262,54 @@ def remove_meeting(
         meeting_id=meeting_id,
         user_id=current_user.id
     )
+
+
+@router.post("/{meeting_id}/transcribe")
+def generate_transcript(
+    meeting_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_verified_user),
+):
+
+    meeting = get_meeting_by_id(
+        db=db,
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+    )
+
+    owner = get_meeting_owner(
+        db=db,
+        meeting_id=meeting_id,
+    )
+
+    if owner.id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only meeting owner can generate transcript."
+        )
+
+    if meeting.transcript_status == "processing":
+        raise HTTPException(
+            status_code=409,
+            detail="Transcript is already being generated."
+        )
+
+    if meeting.transcript_status == "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Transcript already exists."
+        )
+
+    meeting.transcript_status = "processing"
+
+    db.commit()
+
+    background_tasks.add_task(
+        run_transcription,
+        meeting.id,
+    )
+
+    return {
+        "message": "Transcript generation started."
+    }

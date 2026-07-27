@@ -45,3 +45,5 @@ alembic/__pycache__/
 # SQLite
 *.db
 *.sqlite3
+
+trained_model_the_new_one_for_whisperX
