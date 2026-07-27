@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import  ForeignKey, String, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.Enum import TranscriptStatus
 from app.core.database import Base
 
 
@@ -41,7 +42,7 @@ class Meeting(Base):
     transcript_status: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        default="NOT_STARTED"
+        default=TranscriptStatus.NOT_STARTED
     )
 
     summary: Mapped[str | None] = mapped_column(

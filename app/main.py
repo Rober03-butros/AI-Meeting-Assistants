@@ -5,18 +5,23 @@ from app.api.meeting import router as meeting_router
 from app.api.user import router as user_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.ai.model_manager import load_models
+from app.ai.model_manager import model_manager
+from app.core.config import Settings
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
 
-    load_models()
-
-    yield
+app = FastAPI()
 
 
-app = FastAPI(lifespan=lifespan)
+@app.on_event("startup")
+def startup_event():
+    
+    print("Starting server...")
+
+    model_manager.load_models()
+
+    print("Server ready.")
+
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,10 +1,9 @@
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.meeting import Meeting
-import shutil
+from app.core.Enum import TranscriptStatus
 
 from app.ai.model_manager import model_manager
-
 
 
 def run_transcription(meeting_id: int):
@@ -31,54 +30,34 @@ def run_transcription(meeting_id: int):
 
 
 
-        meeting.transcript_status = "PROCESSING"
+        meeting.transcript_status = TranscriptStatus.PROCESSING
 
         db.commit()
 
+
+        audio_path = meeting.audio.path
+
+        
         whisper = model_manager.whisper
-
-
+        
+        
         if whisper is None:
 
             raise Exception(
                 "Whisper model is not loaded"
             )
 
-
-        # model = whisper["model"]
-
-        # processor = whisper["processor"]
-
-
-        audio_path = meeting.audio.path
-
-
-        # result = model.transcribe(
-        #     audio_path
-        # )
+        result = whisper["pipeline"](
+            audio_path,
+            return_timestamps=True,
+            generate_kwargs={
+            "language": "ar",
+            "task": "transcribe",
+            },
+        )
 
 
-        result = whisper(audio_path, return_timestamps=True)
-        # rag_data = {
-        #     "full_text": result["text"],
-        #     "segments": result["chunks"]
-        # }
-        # result = transcribe_for_rag(audio_path)
-
-
-        transcript = ""
-
-
-
-        # for segment in result["segments"]:
-
-        #     transcript += (
-        #         segment["text"]
-        #         + "\n"
-        #     )
-
-
-        meeting.transcript = result["text"]
+        meeting.transcript = result['text']
 
 
         meeting.transcript_status = "COMPLETED"

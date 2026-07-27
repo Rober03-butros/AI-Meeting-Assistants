@@ -18,9 +18,9 @@ class ModelManager:
         print("Loading AI models...")
 
 
-        # self.whisper = load_whisper()
+        self.whisper = load_whisper()
 
-
+ 
         # لاحقا
         # self.summarizer = load_summary_model()
 

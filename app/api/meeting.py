@@ -14,6 +14,7 @@ from app.models.user import User
 from app.schemas.meeting import MeetingResponse
 from app.services.meeting_services import create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
 from app.services.transcription import run_transcription
+from app.core.Enum import TranscriptStatus
 
 
 router = APIRouter(
@@ -146,7 +147,7 @@ def get_meeting_audio(
 
     return FileResponse(
         path=file_path,
-        media_type="audio/webm",
+        media_type="audio/wav",
         filename=file_path.name
     )
 
@@ -281,7 +282,7 @@ def generate_transcript(
     owner = get_meeting_owner(
         db=db,
         meeting_id=meeting_id,
-    )
+    ) 
 
     if owner.id != current_user.id:
         raise HTTPException(
@@ -289,20 +290,19 @@ def generate_transcript(
             detail="Only meeting owner can generate transcript."
         )
 
-    if meeting.transcript_status == "processing":
+    if meeting.transcript_status == TranscriptStatus.PROCESSING:
         raise HTTPException(
             status_code=409,
             detail="Transcript is already being generated."
         )
 
-    if meeting.transcript_status == "completed":
+    if meeting.transcript_status == TranscriptStatus.COMPLETED:
         raise HTTPException(
             status_code=400,
             detail="Transcript already exists."
         )
 
-    meeting.transcript_status = "processing"
-
+    
     db.commit()
 
     background_tasks.add_task(
