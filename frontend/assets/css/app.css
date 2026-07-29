@@ -131,7 +131,12 @@ a:hover { color: var(--text); }
   width: min(1120px, 100% - 2 * var(--space));
   margin-inline: auto;
 }
-.container--narrow { width: min(760px, 100% - 2 * var(--space)); }
+/* Modifier is used standalone (recorder/login/register/verify), so it must
+   repeat the centring — otherwise it renders flush-left with no side gutter. */
+.container--narrow {
+  width: min(760px, 100% - 2 * var(--space));
+  margin-inline: auto;
+}
 
 .stack   { display: grid; gap: 18px; }
 .stack-sm { display: grid; gap: 10px; }
@@ -172,6 +177,7 @@ a:hover { color: var(--text); }
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;          /* allow children to shrink instead of overflowing */
 }
 
 .brand {
@@ -204,7 +210,29 @@ a:hover { color: var(--text); }
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  flex: 0 1 auto;          /* may shrink; its icon buttons are pinned below */
+  min-width: 0;
 }
+/* The bell, theme and sign-out buttons must always stay visible, even when
+   the nav links are cramped on a narrow viewport. */
+.appbar__nav > .notif,
+.appbar__nav > #themeBtn,
+.appbar__nav > #logoutBtn { flex: 0 0 auto; }
+
+/* Nav LINKS are the only things allowed to shrink/scroll away. Without this,
+   a wide page (e.g. meetings) pushes the trailing icon buttons — the bell
+   included — past the right edge where they're invisible. */
+.appbar__nav > a.btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  /* Drop link labels early so the icon buttons always fit. */
+  .appbar__nav > a.btn .nav-label { display: none; }
+}
+.appbar .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 
 /* ============================================================
    Buttons
@@ -362,6 +390,44 @@ a:hover { color: var(--text); }
 .input[aria-invalid="true"] {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+/* ---- Select ----
+   A native <select> paints its own arrow inside the padding box, so reusing
+   .input leaves it flush to the border and crowding the label. We remove the
+   native arrow entirely and draw our own with generous breathing room.
+   !important is used because a cached older stylesheet must never win.     */
+select.input,
+.select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  padding-right: 46px !important;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa8bf' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 16px center !important;
+  background-size: 15px 15px !important;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  font-weight: 550;
+}
+select.input:hover,
+.select:hover {
+  border-color: var(--border-strong);
+  background-color: var(--surface-2);
+}
+select.input:focus,
+.select:focus {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300c7b7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+}
+select.input::-ms-expand { display: none; }
+/* Native dropdown list: follow the theme instead of white-on-white. */
+select.input option {
+  background: var(--bg-2);
+  color: var(--text);
+  padding: 10px;
 }
 
 .input-group { position: relative; display: flex; }
@@ -645,6 +711,129 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .tile h3 { font-size: 1.08rem; }
 .tile p { color: var(--text-dim); font-size: .9rem; }
 
+/* Control-panel: two equal columns, stacking on narrow screens */
+.panels {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  align-items: start;
+}
+.panel-col { display: flex; flex-direction: column; }
+.panel-col .meeting-list { flex: 1; }
+
+.empty--sm { padding: 26px 16px; }
+.empty--sm .empty__icon { width: 46px; height: 46px; border-radius: 15px; }
+.empty--sm .empty__icon svg { width: 22px; height: 22px; }
+
+/* ---- Notification bell + dropdown ---- */
+.notif { position: relative; display: inline-flex; }
+.notif__dot {
+  position: absolute;
+  top: 2px; right: 2px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  display: grid; place-items: center;
+  border-radius: 99px;
+  background: var(--danger);
+  color: #fff;
+  font-size: .66rem;
+  font-weight: 800;
+  line-height: 1;
+  border: 2px solid var(--bg);
+  animation: pop-in .3s var(--ease);
+}
+.notif__panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(340px, calc(100vw - 28px));
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: toast-in .18s var(--ease);
+}
+.notif__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.notif__list { max-height: min(60vh, 400px); overflow-y: auto; }
+.notif__item {
+  display: flex;
+  gap: 11px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  transition: background .15s;
+}
+.notif__item:last-child { border-bottom: 0; }
+.notif__item:hover { background: var(--surface-2); color: var(--text); }
+.notif__item.is-unread { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+.notif__icon { flex: none; width: 20px; height: 20px; margin-top: 1px; }
+.notif__icon--ok { color: var(--ok); }
+.notif__icon--error { color: var(--danger); }
+.notif__title { display: block; font-weight: 650; font-size: .9rem; }
+.notif__body  { display: block; color: var(--text-dim); font-size: .84rem; margin-top: 2px; }
+.notif__time  { display: block; color: var(--text-faint); font-size: .75rem; margin-top: 3px; }
+
+/* Activity-centre accents */
+.tile__icon--live { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.tile__icon--ok   { background: color-mix(in srgb, var(--ok) 15%, transparent);     color: var(--ok); }
+.tile__icon--warn { background: color-mix(in srgb, var(--warn) 15%, transparent);   color: var(--warn); }
+
+.badge--warn {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  color: var(--warn);
+}
+
+/* A meeting currently being processed: animated left edge */
+.meeting-card.is-processing {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+.meeting-card.is-processing::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--danger);
+}
+.meeting-card.is-processing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent,
+              color-mix(in srgb, var(--danger) 10%, transparent), transparent);
+  animation: sweep 1.8s ease-in-out infinite;
+}
+.meeting-card.is-processing .meeting-card__icon {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+/* A meeting that just completed: brief celebratory flash */
+.meeting-card.is-fresh {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  animation: pop-in .5s var(--ease);
+}
+.meeting-card.is-fresh .meeting-card__icon {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+@keyframes pop-in {
+  0%   { transform: scale(.97); background: color-mix(in srgb, var(--ok) 18%, transparent); }
+  100% { transform: scale(1); }
+}
+
 .stats {
   display: grid;
   gap: 14px;
@@ -849,6 +1038,17 @@ audio { width: 100%; border-radius: var(--r-sm); }
   animation: sweep 1.5s ease-in-out infinite;
 }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* Failed */
+.transcribe-bar.is-failed {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.transcribe-bar.is-failed #transcribeTitle { color: var(--danger); }
+
+/* Processing: keep the locked button legible instead of faded out */
+.transcribe-bar.is-running .btn:disabled { opacity: .9; cursor: progress; }
 
 /* Done: fade back, button locked out */
 .transcribe-bar.is-done {

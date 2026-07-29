@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Home · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css">
+<link rel="stylesheet" href="assets/css/app.css?v=20">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -59,24 +59,62 @@
       </button>
     </section>
 
-    <section class="card reveal">
-      <div class="card__head">
-        <span class="tile__icon" data-icon="clock" style="width:38px;height:38px;margin:0"></span>
-        <h3>Recent meetings</h3>
-        <a class="btn btn--sm btn--ghost" href="meetings.html">View all</a>
+    <section class="panels">
+
+      <!-- PANEL 1: live on the server -->
+      <div class="card panel-col" id="activeCard">
+        <div class="card__head">
+          <span class="tile__icon tile__icon--live" data-icon="sparkle" style="width:38px;height:38px;margin:0"></span>
+          <h3>Processing now</h3>
+          <span class="badge badge--live" id="activeCount"><span class="dot dot--pulse"></span> 0</span>
+          <button class="btn btn--icon btn--ghost" id="muteBtn" type="button"
+                  title="Mute completion sound" aria-label="Mute completion sound"></button>
+        </div>
+        <div class="meeting-list" id="activeList">
+          <div class="skeleton skeleton--card"></div>
+        </div>
       </div>
-      <div class="meeting-list" id="recent">
-        <div class="skeleton skeleton--card"></div>
-        <div class="skeleton skeleton--card"></div>
+
+      <!-- PANEL 2: needs action -->
+      <div class="card panel-col" id="todoCard">
+        <div class="card__head">
+          <span class="tile__icon tile__icon--warn" data-icon="alert" style="width:38px;height:38px;margin:0"></span>
+          <h3>Needs your attention</h3>
+          <span class="badge" id="todoCount">0</span>
+        </div>
+        <div class="meeting-list" id="todoList">
+          <div class="skeleton skeleton--card"></div>
+        </div>
       </div>
+
     </section>
 
   </div>
 </main>
 
+<!-- Surface module-load / runtime failures instead of showing a blank page. -->
+<script>
+window.__bootError = function (msg) {
+  var host = document.getElementById('todoList') || document.body;
+  host.innerHTML =
+    '<div class="empty"><div class="empty__icon">!</div>' +
+    '<h3>Page script failed to load</h3>' +
+    '<p class="muted" style="max-width:60ch;word-break:break-word">' +
+    String(msg).replace(/[<>&]/g, '') + '</p>' +
+    '<p class="faint">Open DevTools → Console for the full stack trace.</p></div>';
+};
+window.addEventListener('error', function (e) {
+  if (e.message) window.__bootError(e.message);
+});
+window.addEventListener('unhandledrejection', function (e) {
+  window.__bootError((e.reason && e.reason.message) || e.reason || 'Unhandled promise rejection');
+});
+</script>
+
 <script type="module">
 import { $, $$, api, icon, toast, requireAuth, mountAppBar, initials,
-         relativeTime, escapeHtml } from './assets/js/app.js';
+         relativeTime, escapeHtml, transcriptionStatus, TSTATUS, hasTranscript,
+         hasSummary, chime, enableChime, notifyDesktop, requestNotifyPermission, Notes } from './assets/js/app.js?v=20';
 
 if (requireAuth()) {
   mountAppBar({ active: 'home' });
@@ -101,49 +139,276 @@ if (requireAuth()) {
     }
   })();
 
-  (async () => {
-    const host = $('#recent');
+  /* ============================================================
+     Live activity: watch for meetings the server is processing.
+     ============================================================ */
+  enableChime();                    // arm audio on first user gesture
+  requestNotifyPermission();
+
+  const card = (m, { meta = '', trailing = '', cls = '' } = {}) => `
+    <a class="meeting-card ${cls}" href="meeting.html?id=${encodeURIComponent(m.id)}">
+      <span class="meeting-card__icon">${icon('doc', 20)}</span>
+      <span class="grow">
+        <span class="meeting-card__title" style="display:block">${escapeHtml(m.title || 'Untitled meeting')}</span>
+        <span class="meeting-card__meta">${meta}</span>
+      </span>
+      ${trailing}
+      <span class="meeting-card__chev">${icon('chevron', 18)}</span>
+    </a>`;
+
+  /* ---- truth cache -------------------------------------------------------
+     Many /meetings LIST endpoints omit the transcript body AND the status
+     column (they return a slim schema). In that case the list alone cannot
+     tell "never transcribed" from "transcribed, text just not included",
+     so a finished meeting wrongly lands in "Needs your attention".
+
+     Fix: for any meeting the list *claims* is untranscribed, verify once
+     against GET /meetings/{id}, which does carry the transcript. Results are
+     cached so we never re-check the same meeting.                          */
+  const hydrated = new Map();       // id -> true (transcribed) | false (really empty)
+  const detail   = new Map();       // id -> last full row from GET /meetings/{id}
+  let hydrating = false;
+
+  /** Did the global watcher observe this meeting reach a finished state?
+   *  The watcher's map is the same source that drives the notifications, so
+   *  if it says "done" the cached `false` here is stale and must be redone. */
+  const watcherSawFinish = id => {
     try {
-      const meetings = await api('/meetings');
-      const list = Array.isArray(meetings) ? meetings : (meetings?.items || []);
+      const seen = JSON.parse(localStorage.getItem('watch_seen') || '{}');
+      return seen[String(id)] === 'done' || seen[String(id)] === 'failed';
+    } catch { return false; }
+  };
 
-      $('#statTotal').textContent = list.length;
-      $('#statSummarised').textContent = list.filter(m => m.summary).length;
-      const week = Date.now() - 7 * 864e5;
-      $('#statRecent').textContent = list.filter(m => new Date(m.created_at) >= week).length;
+  /** Merge the list row with anything we learned from the detail endpoint.
+   *  The cached detail must NEVER mask fresher list data: if the list already
+   *  proves the meeting is finished, the list wins. Otherwise a detail row
+   *  cached while the job was running would keep it looking unfinished. */
+  const enrich = m => {
+    const d = detail.get(String(m.id));
+    if (!d) return m;
+    const listSt = transcriptionStatus(m);
+    if (listSt === TSTATUS.DONE || listSt === TSTATUS.FAILED || hasTranscript(m)) {
+      detail.delete(String(m.id));               // cache is obsolete, drop it
+      return m;
+    }
+    return { ...m, ...d };
+  };
 
-      const recent = [...list]
-        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-        .slice(0, 4);
+  async function hydrateUnknowns(list) {
+    if (hydrating) return;
 
-      if (!recent.length) {
-        host.innerHTML = `<div class="empty">
-          <div class="empty__icon">${icon('inbox', 28)}</div>
-          <h3>No meetings yet</h3>
-          <p class="muted">Record your first meeting to see it here.</p>
-          <a class="btn btn--primary" href="recorder.html">${icon('mic', 17)} Start recording</a>
-        </div>`;
-        return;
+    const suspects = list.filter(m => {
+      const id = String(m.id);
+      const st = transcriptionStatus(enrich(m));
+      if (st === TSTATUS.FAILED) return false;
+      // Re-check anything still running so we notice when it finishes,
+      // plus anything the list can't prove is finished.
+      if (st === TSTATUS.PROCESSING) return true;
+      if (hasTranscript(m) || st === TSTATUS.DONE) return false;   // list already proved it
+      // A meeting we previously proved empty must be re-checked once it has
+      // been transcribed, otherwise it is stuck in "Needs your attention".
+      if (hydrated.get(id) === false && watcherSawFinish(id)) return true;
+      return !hydrated.has(id);
+    }).slice(0, 12);                                               // cap the fan-out
+
+    if (!suspects.length) return;
+    hydrating = true;
+    try {
+      const checked = await Promise.all(suspects.map(async m => {
+        try {
+          const full = await api(`/meetings/${encodeURIComponent(m.id)}`, { cache: 'no-store' });
+          return [String(m.id), hasTranscript(full) || transcriptionStatus(full) === TSTATUS.DONE, full];
+        } catch { return [String(m.id), null, null]; }
+      }));
+
+      let changed = false;
+      for (const [id, ok, full] of checked) {
+        if (ok === null) continue;                 // request failed: try again next tick
+        hydrated.set(id, ok);
+        if (full) {
+          detail.set(id, full);                    // keep status/summary/transcript
+          changed = true;
+        }
       }
+      if (changed) renderAll(list);                // re-render with the richer data
+    } finally { hydrating = false; }
+  }
 
-      host.innerHTML = recent.map(m => `
-        <a class="meeting-card" href="meeting.html?id=${encodeURIComponent(m.id)}">
-          <span class="meeting-card__icon">${icon('doc', 20)}</span>
-          <span class="grow">
-            <span class="meeting-card__title" style="display:block">${escapeHtml(m.title || 'Untitled meeting')}</span>
-            <span class="meeting-card__meta">${escapeHtml(relativeTime(m.created_at) || '')}</span>
-          </span>
-          <span class="meeting-card__chev">${icon('chevron', 18)}</span>
-        </a>`).join('');
+  // Remembers what was processing on the previous tick so we only celebrate
+  // a genuine processing -> done transition (never on first paint).
+  let prevProcessing = new Set();
+  let firstRun = true;
+  let pollDelay = 4000;
+
+  /* mute toggle */
+  const muteBtn = $('#muteBtn');
+  const paintMute = () => {
+    if (!muteBtn) return;
+    const muted = localStorage.getItem('mute_sounds') === '1';
+    muteBtn.innerHTML = icon(muted ? 'alert' : 'checkCirc', 17);
+    muteBtn.title = muted ? 'Completion sound is off' : 'Completion sound is on';
+    muteBtn.style.color = muted ? 'var(--text-faint)' : 'var(--brand)';
+  };
+  if (muteBtn) {
+    muteBtn.onclick = e => {
+      e.preventDefault();
+      const muted = localStorage.getItem('mute_sounds') === '1';
+      localStorage.setItem('mute_sounds', muted ? '0' : '1');
+      paintMute();
+      if (muted) chime('success');    // preview when switching back on
+    };
+  }
+  paintMute();
+
+  function renderAll(rawList) {
+    // Fold in anything learned from GET /meetings/{id} so a `status` that only
+    // exists on the detail endpoint still drives the "Processing now" panel.
+    const list = rawList.map(enrich);
+    /* ---- stats ---- */
+    $('#statTotal').textContent = list.length;
+    $('#statSummarised').textContent = list.filter(hasSummary).length;
+    const week = Date.now() - 7 * 864e5;
+    $('#statRecent').textContent = list.filter(m => new Date(m.created_at) >= week).length;
+
+    /* ---- bucket by state ----
+       A meeting counts as "processing" if the server says so, OR if this
+       browser started a job on the meeting page (localStorage marker) and
+       the server hasn't reported a terminal state yet. The marker covers
+       backends whose /meetings list omits the status column.              */
+    const startedHere = m => {
+      try {
+        const t = Number(localStorage.getItem(`transcribing:${m.id}`));
+        if (!t) return false;
+        if (Date.now() - t > 60 * 60 * 1000) {            // stale -> drop it
+          localStorage.removeItem(`transcribing:${m.id}`);
+          return false;
+        }
+        return true;
+      } catch { return false; }
+    };
+
+    const isProcessing = m => {
+      const st = transcriptionStatus(m);
+      if (st === TSTATUS.PROCESSING) return true;
+      if (st === TSTATUS.DONE || st === TSTATUS.FAILED) {
+        try { localStorage.removeItem(`transcribing:${m.id}`); } catch {}
+        return false;                                     // finished: clear the marker
+      }
+      return startedHere(m);                              // no signal -> trust the marker
+    };
+
+    const processing = list.filter(isProcessing);
+    const failed     = list.filter(m => transcriptionStatus(m) === TSTATUS.FAILED);
+    /* A meeting counts as transcribed if it has text OR the server says done.
+       The /meetings LIST endpoint often omits the (large) transcript body, so
+       we must not conclude "not transcribed" just because the text is absent. */
+    const isTranscribed = m => hasTranscript(m) || transcriptionStatus(m) === TSTATUS.DONE;
+
+    /* Only nag about summaries if the backend actually produces them —
+       i.e. at least one meeting somewhere has a summary. Otherwise every
+       transcribed meeting would sit here forever. */
+    const summariesInUse = list.some(hasSummary);
+
+    const needsWork = list.filter(m => {
+      const st = transcriptionStatus(m);
+      if (isProcessing(m) || st === TSTATUS.FAILED) return false;   // never in both panels
+      if (hydrated.get(String(m.id)) === true) return false;  // detail check said: transcribed
+      if (!isTranscribed(m)) return true;                     // genuinely needs transcribing
+      return summariesInUse && !hasSummary(m);                // needs summarising
+    });
+
+    /* Completion detection + chime + notifications now live in app.js
+       (startTranscriptionWatcher), so they fire on every page, not just here. */
+    firstRun = false;
+
+    /* ---- PANEL 1: processing now ---- */
+    $('#activeCount').innerHTML = `<span class="dot dot--pulse"></span> ${processing.length}`;
+    $('#activeList').innerHTML = processing.length
+      ? processing.map(m => card(m, {
+          cls: 'is-processing',
+          meta: `Started ${escapeHtml(relativeTime(m.created_at) || 'recently')}`,
+          trailing: `<span class="badge badge--live"><span class="dot dot--pulse"></span> Transcribing</span>`,
+        })).join('')
+      : `<div class="empty empty--sm">
+           <div class="empty__icon">${icon('checkCirc', 24)}</div>
+           <p class="muted">Nothing is processing right now.</p>
+         </div>`;
+
+    /* ---- PANEL 2: needs attention ---- */
+    const todo = [...failed, ...needsWork];
+    $('#todoCount').textContent = todo.length;
+    $('#todoList').innerHTML = todo.length
+      ? todo.slice(0, 8).map(m => {
+          const st = transcriptionStatus(m);
+          const needsT = !isTranscribed(m);
+          let tag, meta;
+          if (st === TSTATUS.FAILED) {
+            tag = `<span class="badge" style="color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent)">${icon('alert', 13)} Retry</span>`;
+            meta = 'Last attempt failed';
+          } else if (needsT) {
+            tag = `<span class="badge badge--warn">${icon('sparkle', 13)} Transcribe</span>`;
+            meta = 'No transcript yet';
+          } else {
+            tag = `<span class="badge badge--warn">${icon('doc', 13)} Summarise</span>`;
+            meta = 'Transcript ready, no summary';
+          }
+          return card(m, { meta: escapeHtml(meta), trailing: tag });
+        }).join('')
+      : `<div class="empty empty--sm">
+           <div class="empty__icon">${icon('checkCirc', 24)}</div>
+           <p class="muted">${list.length ? 'All meetings are processed. Nice.' : 'No meetings yet.'}</p>
+           ${list.length ? '' : `<a class="btn btn--sm btn--primary" href="recorder.html">${icon('mic', 15)} Record one</a>`}
+         </div>`;
+  }
+
+  /* ---------- data ----------
+     The site-wide watcher in app.js already polls /meetings on every page.
+     We reuse its result instead of running a second, competing poll loop. */
+  function paint(list) {
+    if (firstRun && list.length) {
+      console.info('[home] /meetings row keys:', Object.keys(list[0]).join(', '));
+    }
+    try {
+      renderAll(list);
+      hydrateUnknowns(list);
+    } catch (renderErr) {
+      console.error('renderAll failed:', renderErr);
+      $('#todoList').innerHTML = `<div class="empty empty--sm">
+        <div class="empty__icon">${icon('alert', 28)}</div>
+        <h3>Could not render meetings</h3>
+        <p class="muted">${escapeHtml(renderErr.message)}</p>
+      </div>`;
+    }
+  }
+
+  window.addEventListener('meetings:refreshed', e => {
+    // A meeting that just finished must drop its stale caches, otherwise it
+    // stays in "Needs your attention" until a reload.
+    for (const id of (e.detail.finished || [])) {
+      hydrated.delete(String(id));
+      detail.delete(String(id));
+    }
+    paint(e.detail.list || []);
+  });
+
+  // Initial paint (the watcher's first tick lands ~1.5s later).
+  (async () => {
+    try {
+      const data = await api('/meetings', { cache: 'no-store' });
+      paint(Array.isArray(data) ? data
+          : Array.isArray(data?.items) ? data.items
+          : Array.isArray(data?.results) ? data.results
+          : Array.isArray(data?.meetings) ? data.meetings : []);
     } catch (err) {
       if (err.status === 401) return;
-      host.innerHTML = `<div class="empty">
+      $('#todoList').innerHTML = `<div class="empty empty--sm">
         <div class="empty__icon">${icon('alert', 28)}</div>
         <h3>Couldn't load meetings</h3>
         <p class="muted">${escapeHtml(err.message)}</p>
       </div>`;
     }
   })();
+
 }
 </script>
 </body>

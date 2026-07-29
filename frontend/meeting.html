@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Meeting · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css">
+<link rel="stylesheet" href="assets/css/app.css?v=20">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -96,7 +96,8 @@
 
 <script type="module">
 import { $, $$, api, icon, toast, busy, requireAuth, mountAppBar, confirmDialog,
-         formatDate, relativeTime, escapeHtml, initials, Tokens, CONFIG } from './assets/js/app.js';
+         formatDate, relativeTime, escapeHtml, initials, Tokens, CONFIG,
+         trackTranscription, notifyTranscription } from './assets/js/app.js?v=20';
 
 if (requireAuth()) {
   mountAppBar({ active: 'meetings' });
@@ -127,104 +128,252 @@ if (requireAuth()) {
   let meeting = null;
   let transcript = '';
 
-  /* ---------- transcript state / gating ----------
-     The Transcribe button is enabled ONLY when there is no transcript.
-     Once one exists (or a run is in flight) it is permanently disabled. */
+  /* ============================================================
+     TRANSCRIPTION STATE MACHINE
+     ------------------------------------------------------------
+     The DB `status` column is the single source of truth, so the
+     correct UI is restored on reload / in another tab.
+
+       idle       -> no transcript, button enabled
+       processing -> job running, button locked + spinner, poll
+       done       -> transcript present, button locked "Transcribed"
+       failed     -> error shown, button re-enabled as "Try again"
+     ============================================================ */
   const tBar   = $('#transcribeBar');
   const tBtn   = $('#transcribeBtn');
   const tTitle = $('#transcribeTitle');
   const tHint  = $('#transcribeHint');
 
-  function renderTranscript(text) {
-    transcript = (text || '').trim();
-    const has = !!transcript;
+  const STATE = { IDLE: 'idle', PROCESSING: 'processing', DONE: 'done', FAILED: 'failed' };
+  let state = STATE.IDLE;
 
-    $('#transcript').innerHTML = has
-      ? escapeHtml(transcript)
-      : `<span class="muted">No transcript yet. Use the button below to generate one.</span>`;
+  /* ---- local "job in flight" marker -------------------------------------
+     Backup for the case where the backend does not (yet) expose a status
+     field. Written when the user starts a job, cleared on a terminal state.
+     Lets us restore the loading UI when the user navigates away and returns.
+     Expires so a crashed server can never lock the button forever.        */
+  const FLAG = `transcribing:${meetingId}`;
+  const FLAG_TTL = 60 * 60 * 1000;                       // 1 hour
 
-    // Gate the action row
-    $('#copyTranscript').disabled = !has;
-    $('#downloadTranscript').disabled = !has;
+  const markStarted = () => {
+    try { localStorage.setItem(FLAG, String(Date.now())); } catch {}
+  };
+  const clearStarted = () => {
+    try { localStorage.removeItem(FLAG); } catch {}
+  };
+  const startedLocally = () => {
+    try {
+      const t = Number(localStorage.getItem(FLAG));
+      if (!t) return false;
+      if (Date.now() - t > FLAG_TTL) { clearStarted(); return false; }
+      return true;
+    } catch { return false; }
+  };
+  let pollTimer = null;
+  let pollStarted = 0;
+  let pollDelay = 3000;                    // backs off to 15s on long jobs
+  const POLL_CEILING = 60 * 60 * 1000;     // stop polling after 1h
 
+  /** Map whatever the backend reports onto our state machine.
+   *  Returns null when the payload carries NO recognisable signal, so the
+   *  caller can decide (we never downgrade a running job on silence). */
+  function deriveState(m) {
+    const raw = String(m?.status ?? m?.transcription_status ?? m?.state ?? '').toLowerCase().trim();
+    const text = (typeof m?.transcripts === 'string' ? m.transcripts : m?.transcript) || '';
+
+    if (['processing', 'pending', 'queued', 'running', 'in_progress', 'inprogress',
+         'transcribing', 'started', 'busy', 'working'].includes(raw)) return STATE.PROCESSING;
+    if (['failed', 'error', 'failure', 'cancelled', 'canceled'].includes(raw)) return STATE.FAILED;
+    if (text.trim()) return STATE.DONE;                 // real text always wins
+    if (['done', 'completed', 'complete', 'success', 'succeeded', 'finished', 'ready']
+        .includes(raw)) return STATE.DONE;
+    if (raw) return null;      // unknown status string -> no opinion
+    return STATE.IDLE;         // genuinely empty row
+  }
+
+  const SKELETON =
+    `<div class="skeleton skeleton--text"></div>
+     <div class="skeleton skeleton--text" style="width:92%"></div>
+     <div class="skeleton skeleton--text" style="width:78%"></div>
+     <div class="skeleton skeleton--text" style="width:85%"></div>`;
+
+  /** Single render function — every state change goes through here. */
+  function render(next, { text = null, error = null } = {}) {
+    state = next;
+    if (text !== null) transcript = String(text || '').trim();
+
+    // Keep the local marker in sync with the machine.
+    // NOTE: we deliberately do NOT clear it on done/failed here. The global
+    // watcher (app.js) owns that: it needs the marker to survive until it has
+    // observed the completion, otherwise the notification + sound never fire.
+    // Only 'idle' (no job was ever started) releases it.
+    if (next === STATE.PROCESSING) markStarted();
+    else if (next === STATE.IDLE) clearStarted();
+
+    const done = next === STATE.DONE;
+    const processing = next === STATE.PROCESSING;
+
+    // --- transcript body ---
+    $('#transcript').innerHTML =
+      processing ? SKELETON
+      : done      ? escapeHtml(transcript)
+      : next === STATE.FAILED
+        ? `<span class="muted">Transcription failed. You can try again below.</span>`
+        : `<span class="muted">No transcript yet. Use the button below to generate one.</span>`;
+
+    // --- action row ---
+    $('#copyTranscript').disabled = !done;
+    $('#downloadTranscript').disabled = !done;
+
+    // --- the bar ---
     tBar.classList.remove('hidden');
-    tBar.classList.toggle('is-done', has);
-    tBtn.disabled = has;                       // <- the requested rule
-    tBtn.setAttribute('aria-disabled', String(has));
+    tBar.classList.toggle('is-running', processing);
+    tBar.classList.toggle('is-done', done);
+    tBar.classList.toggle('is-failed', next === STATE.FAILED);
 
-    if (has) {
-      tBtn.innerHTML = `${icon('check', 17)} Transcribed`;
-      tBtn.title = 'This meeting already has a transcript';
+    // --- the button: locked in BOTH processing and done ---
+    busy(tBtn, processing);                 // spinner while the job runs
+    tBtn.disabled = processing || done;     // busy() toggles disabled, so set it after
+    tBtn.setAttribute('aria-disabled', String(tBtn.disabled));
+    tBar.setAttribute('aria-busy', String(processing));
+
+    if (processing) {
+      tTitle.textContent = 'Transcribing…';
+      tHint.textContent  = 'The model is running on the server. This can take a few minutes — you can safely leave this page.';
+      tBtn.title = 'Transcription already in progress';
+      // label is hidden by the spinner, but keep it correct for screen readers
+      tBtn.innerHTML = `${icon('sparkle', 17)} Transcribing…`;
+    } else if (done) {
+      const words = transcript ? transcript.split(/\s+/).length.toLocaleString() : '0';
       tTitle.textContent = 'Transcript ready';
-      tHint.textContent = `${transcript.split(/\s+/).length.toLocaleString()} words.`;
+      tHint.textContent  = `${words} words.`;
+      tBtn.title = 'This meeting already has a transcript';
+      tBtn.innerHTML = `${icon('check', 17)} Transcribed`;
+    } else if (next === STATE.FAILED) {
+      tTitle.textContent = 'Transcription failed';
+      tHint.textContent  = error || 'Something went wrong on the server.';
+      tBtn.title = 'Run the transcription again';
+      tBtn.innerHTML = `${icon('sparkle', 17)} Try again`;
     } else {
-      tBtn.innerHTML = `${icon('sparkle', 17)} Transcribe`;
-      tBtn.title = 'Run speech-to-text on this recording';
       tTitle.textContent = 'Not transcribed yet';
-      tHint.textContent = 'Run the speech-to-text model on this recording.';
+      tHint.textContent  = 'Run the speech-to-text model on this recording.';
+      tBtn.title = 'Run speech-to-text on this recording';
+      tBtn.innerHTML = `${icon('sparkle', 17)} Transcribe`;
     }
   }
 
-  /* ---------- run transcription (synchronous / long-running) ---------- */
-  let running = false;
+  /* ---------- polling while status === processing ---------- */
+  function stopPolling() { clearTimeout(pollTimer); pollTimer = null; }
 
-  const warnUnload = e => { e.preventDefault(); e.returnValue = ''; };
+  function startPolling() {
+    if (pollTimer) return;                 // already polling
+    pollStarted = Date.now();
+    pollDelay = 3000;
+    queuePoll();
+  }
 
-  tBtn.onclick = async () => {
-    if (running || transcript) return;         // double-guard against double-submit
-    running = true;
+  function queuePoll() {
+    stopPolling();
+    pollTimer = setTimeout(poll, pollDelay);
+  }
 
-    busy(tBtn, true);
-    tTitle.textContent = 'Transcribing…';
-    tHint.textContent = 'The model is running on the server. Keep this tab open — this can take a few minutes.';
-    tBar.classList.add('is-running');
-    $('#transcript').innerHTML =
-      `<div class="skeleton skeleton--text"></div>
-       <div class="skeleton skeleton--text" style="width:92%"></div>
-       <div class="skeleton skeleton--text" style="width:78%"></div>`;
-    window.addEventListener('beforeunload', warnUnload);
+  async function poll() {
+    // Don't hammer the API in a hidden tab; resume on focus.
+    if (document.hidden) { queuePoll(); return; }
 
-    // The default fetch has no timeout; a long model run must not be cut off,
-    // but we still bail out after 30 min rather than hanging forever.
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 30 * 60 * 1000);
+    if (Date.now() - pollStarted > POLL_CEILING) {
+      stopPolling();
+      render(STATE.FAILED, { error: 'Still processing after an hour — check the server logs.' });
+      return;
+    }
 
     try {
-      const res = await api(`/meetings/${encodeURIComponent(meetingId)}/transcribe`, {
-        method: 'POST',
-        signal: ctrl.signal,
-      });
+      const fresh = await api(`/meetings/${encodeURIComponent(meetingId)}`, { cache: 'no-store' });
+      meeting = fresh;
+      const next = deriveState(fresh);
 
-      // Accept whatever shape the backend returns.
+      /* STICKY RULE ------------------------------------------------------
+         Once a job is running, ONLY an explicit terminal signal releases the
+         lock: real transcript text, or a done/failed status. Anything else
+         (idle, empty, unknown status, a backend with no status column yet)
+         keeps the spinner up. This is what stops the button flicking back to
+         enabled a few seconds after being pressed. */
+      if (next !== STATE.DONE && next !== STATE.FAILED) {
+        pollDelay = Math.min(pollDelay * 1.4, 15000);   // gentle backoff
+        queuePoll();
+        return;
+      }
+
+      stopPolling();
+      /* This page polls faster than the global watcher, so it usually sees the
+         completion first. Emit the notification here rather than waiting — and
+         because notifyTranscription() is keyed by run, the watcher's later tick
+         is de-duplicated and cannot double-chime. */
+      const title = (meeting && meeting.title) || 'Meeting';
+      if (next === STATE.DONE) {
+        const t = (typeof fresh.transcripts === 'string' ? fresh.transcripts : fresh.transcript) || '';
+        render(STATE.DONE, { text: t });
+        notifyTranscription(meetingId, title, true);
+      } else {
+        render(STATE.FAILED, { error: fresh.error || fresh.detail || null });
+        notifyTranscription(meetingId, title, false);
+      }
+    } catch (err) {
+      if (err.status === 401) { stopPolling(); return; }
+      pollDelay = Math.min(pollDelay * 2, 20000);       // network blip — back off and retry
+      queuePoll();                                      // stays locked meanwhile
+    }
+  }
+
+  // Poll immediately when the tab regains focus.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state === STATE.PROCESSING) { pollDelay = 2000; queuePoll(); }
+  });
+  window.addEventListener('beforeunload', stopPolling);
+
+  /* ---------- click: fire the job, flip to processing ---------- */
+  tBtn.onclick = async () => {
+    if (state === STATE.PROCESSING || state === STATE.DONE) return;   // hard guard
+
+    const prev = state;
+    render(STATE.PROCESSING);              // optimistic: lock the button immediately
+    trackTranscription(meetingId);         // tell the global watcher a job just started
+
+    try {
+      const res = await api(`/meetings/${encodeURIComponent(meetingId)}/transcribe`, { method: 'POST' });
+
+      // If the endpoint blocks and returns the finished text, use it directly.
       const text = typeof res === 'string' ? res
                  : res?.transcripts ?? res?.transcript ?? res?.text ?? '';
 
       if (text && String(text).trim()) {
-        renderTranscript(String(text));
-        toast('Transcript generated', 'ok');
-      } else {
-        // Job accepted but body empty — re-read the meeting to pick it up.
-        const fresh = await api(`/meetings/${encodeURIComponent(meetingId)}`);
-        const t = typeof fresh.transcripts === 'string' ? fresh.transcripts : fresh.transcript;
-        if (t && t.trim()) { renderTranscript(t); toast('Transcript generated', 'ok'); }
-        else { renderTranscript(''); toast('Finished, but no transcript was returned.', 'info', 6000); }
+        render(STATE.DONE, { text });
+        notifyTranscription(meetingId, (meeting && meeting.title) || 'Meeting', true);
+        return;
       }
+
+      // Otherwise the job was accepted and runs in the background → poll.
+      // Only an explicit "failed" body cancels the lock; empty/unknown
+      // responses mean "accepted, keep waiting".
+      if (deriveState(res) === STATE.FAILED) {
+        render(STATE.FAILED, { error: res?.error || res?.detail || null });
+        return;
+      }
+      render(STATE.PROCESSING);
+      startPolling();
     } catch (err) {
       if (err.status === 401) return;
-      renderTranscript('');                    // re-enables the button so they can retry
-      tTitle.textContent = 'Transcription failed';
-      tHint.textContent = err.name === 'AbortError'
-        ? 'Timed out after 30 minutes.'
-        : (err.message || 'Something went wrong.');
-      tBtn.innerHTML = `${icon('sparkle', 17)} Try again`;
-      toast(err.name === 'AbortError' ? 'Transcription timed out' : (err.message || 'Transcription failed'), 'error', 6000);
-    } finally {
-      clearTimeout(timeout);
-      window.removeEventListener('beforeunload', warnUnload);
-      tBar.classList.remove('is-running');
-      busy(tBtn, false);
-      tBtn.disabled = !!transcript;            // busy() clears disabled — reapply the gate
-      running = false;
+
+      // 409 = server says a job is already running: stay locked and follow it.
+      if (err.status === 409) {
+        render(STATE.PROCESSING);
+        startPolling();
+        toast('Transcription is already in progress', 'info');
+        return;
+      }
+
+      render(prev === STATE.DONE ? STATE.DONE : STATE.FAILED, { error: err.message });
+      toast(err.message || 'Could not start transcription', 'error', 6000);
     }
   };
 
@@ -247,9 +396,30 @@ if (requireAuth()) {
         ? escapeHtml(summary)
         : `<span class="muted">No summary yet — it appears once processing finishes.</span>`;
 
-      // Sets the text AND gates the Transcribe button off the current state.
-      renderTranscript(typeof meeting.transcripts === 'string' ? meeting.transcripts
-                                                               : meeting.transcript);
+      // Restore the transcription state from the DB. If the server says
+      // "processing" (e.g. the user reloaded mid-run, or started it in another
+      // tab), the button comes back already locked and polling resumes.
+      /* Restore the transcription UI on every fresh page load.
+         The user may have started a job, navigated to Home, recorded another
+         meeting, and come back — the correct state must be rebuilt from the
+         server (or from the local marker if the API has no status field). */
+      const initialText = (typeof meeting.transcripts === 'string' ? meeting.transcripts
+                                                                   : meeting.transcript) || '';
+      const reported = deriveState(meeting);          // may be null = "no opinion"
+
+      let initial;
+      if (reported === STATE.DONE || reported === STATE.FAILED) {
+        initial = reported;                           // server is authoritative
+      } else if (reported === STATE.PROCESSING) {
+        initial = STATE.PROCESSING;                   // still running
+      } else if (startedLocally()) {
+        initial = STATE.PROCESSING;                   // we started one; API is quiet
+      } else {
+        initial = STATE.IDLE;
+      }
+
+      render(initial, { text: initialText, error: meeting.error || null });
+      if (initial === STATE.PROCESSING) startPolling();
 
       $('#copySummary').disabled = !summary;
       $('#copySummary').onclick = () => copy(summary, 'Summary');
