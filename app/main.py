@@ -3,6 +3,8 @@ from app.api.auth import router as auth_router
 from app.api.verification import router as verification_router
 from app.api.meeting import router as meeting_router
 from app.api.user import router as user_router
+from app.api.summraize import router as summarize_router
+from app.api.segment import router as segment_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -20,6 +22,8 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(verification_router)
-app.include_router(meeting_router)
 app.include_router(user_router)
+app.include_router(meeting_router)
+app.include_router(segment_router)
+app.include_router(summarize_router)
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

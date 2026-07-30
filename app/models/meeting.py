@@ -10,6 +10,7 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.audio import Audio
     from app.models.meeting_user import MeetingUser
+    from app.models.segment import Segment
 
 
 class Meeting(Base):
@@ -36,10 +37,10 @@ class Meeting(Base):
         nullable=True,
     )
 
-    audio_id: Mapped[int] = mapped_column(
+    audio_id: Mapped[int|None] = mapped_column(
     ForeignKey("audio.id"),
     unique=True,
-    nullable=False
+    nullable=True
     )
 
 
@@ -60,6 +61,12 @@ class Meeting(Base):
 
     users: Mapped[list["MeetingUser"]] = relationship(
         "MeetingUser",
+        back_populates="meeting",
+        cascade="all, delete-orphan",
+    )
+
+    segments: Mapped[list["Segment"]] = relationship(
+        "Segment",
         back_populates="meeting",
         cascade="all, delete-orphan",
     )

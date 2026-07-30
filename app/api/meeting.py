@@ -6,13 +6,14 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_verified_user
+from app.core.dependencies import get_current_user, get_verified_user
 from app.models.meeting import Meeting
 from app.models.meeting_user import MeetingUser
 from app.models.user import User
 
 from app.schemas.meeting import MeetingResponse
-from app.services.meeting_services import create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
+from app.services.meeting_services import add_transcript_to_meeting, create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
+from app.services.segment_services import clean_text
 
 
 router = APIRouter(
@@ -37,7 +38,24 @@ def upload_meeting_audio(
         user=current_user,
     )
 
- 
+ ################################################################
+ #################### TESTING ###################################
+@router.post("/upload_transcript",response_model=MeetingResponse,)
+def upload_meeting_transcript(
+    title: str = Form(...),
+    transcript: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+
+    return add_transcript_to_meeting(
+        db=db,
+        title=title,
+        transcript=transcript,
+        user=current_user
+    )
+################################################################
+################################################################
 
 @router.get("")
 def get_my_meetings(
@@ -75,6 +93,7 @@ def get_meeting(
     )
 
     owner_id = get_meeting_owner(db,meeting.id).id
+    meeting.transcript = clean_text(meeting.transcript)
 
     return {
 

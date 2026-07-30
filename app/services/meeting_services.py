@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.meeting import Meeting
 from app.models.audio import Audio
 from app.models.meeting_user import MeetingUser
+from app.models.segment import Segment
 from app.models.user import User
 from app.services.audio_services import save_audio_file, upload_audio
 from fastapi import HTTPException, status
@@ -45,6 +46,28 @@ def create_meeting(db: Session,file: UploadFile,title: str,user: User):
 
     return meeting
 
+def add_transcript_to_meeting(db: Session, title: str, transcript: str,user: User):
+
+    db.flush()
+
+
+    meeting = Meeting(
+        title=title,
+        transcript=transcript,
+        # audio_id=meeting.audio_id
+    )
+
+    db.add(meeting)
+    db.flush()
+    meeting_user = MeetingUser(
+        meeting_id=meeting.id,
+        user_id=user.id,
+        role="owner"
+    )
+    db.add(meeting_user)
+    db.commit()
+    db.refresh(meeting_user)
+    return meeting
 
 def get_user_meetings(db: Session,user_id: int):
 
@@ -119,7 +142,7 @@ def delete_meeting(db: Session,meeting_id: int,user_id: int):
         )
         .first()
     )
-
+    segment = (db.query(Segment).filter(Segment.meeting_id == meeting_id).all())
 
     if not meeting:
 
@@ -127,7 +150,6 @@ def delete_meeting(db: Session,meeting_id: int,user_id: int):
             status_code=404,
             detail="Meeting not found"
         )
-
 
 
     owner = get_meeting_owner(db, meeting_id)
@@ -167,7 +189,8 @@ def delete_meeting(db: Session,meeting_id: int,user_id: int):
     db.delete(
         meeting
     )
-
+    if segment:
+        db.query(Segment).filter(Segment.meeting_id == meeting_id).delete()
     db.commit()
 
     return {
