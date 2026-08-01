@@ -11,6 +11,8 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.audio import Audio
     from app.models.meeting_user import MeetingUser
+    from app.models.chunk import MeetingChunk
+
 
 
 class Meeting(Base):
@@ -76,4 +78,9 @@ class Meeting(Base):
         "MeetingUser",
         back_populates="meeting",
         cascade="all, delete-orphan",
+    )
+
+    chunks: Mapped[list["MeetingChunk"]] = relationship(
+    back_populates="meeting",
+    cascade="all, delete-orphan",
     )

@@ -1,4 +1,4 @@
-from app.ai.whisper import load_whisper
+# from app.ai.whisper import load_whisper
 # from app.ai.summarizer import load_summary_model
 # from app.ai.rag import load_rag_model
 
@@ -18,7 +18,7 @@ class ModelManager:
         print("Loading AI models...")
 
 
-        self.whisper = load_whisper()
+        # self.whisper = load_whisper()
 
  
         # لاحقا

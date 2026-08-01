@@ -5,3 +5,4 @@ from app.models.token_blacklist import TokenBlacklist
 from app.models.audio import Audio
 from app.models.meeting import Meeting
 from app.models.meeting_user import MeetingUser
+from app.models.chunk import MeetingChunk
