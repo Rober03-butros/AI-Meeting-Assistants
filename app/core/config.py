@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     
     HF_TOKEN: str
 
+    LLM_MODEL_NAME: str
+    LLM_MODEL_URL: str
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8"

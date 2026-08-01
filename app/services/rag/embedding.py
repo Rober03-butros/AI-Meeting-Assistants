@@ -1,25 +1,10 @@
 from app.ai.model_manager import model_manager
 from app.core.Enum import TranscriptStatus
 from sqlalchemy.orm import Session
-import numpy as np
-import faiss
-
 from app.core.database import SessionLocal
 from app.models.meeting import Meeting
 from app.models.chunk import MeetingChunk
-from pathlib import Path
-
-
-
-VECTOR_FOLDER = Path(
-    "storage/vectors"
-)
-
-
-VECTOR_FOLDER.mkdir(
-    parents=True,
-    exist_ok=True,
-)
+from app.core.VDB import build_faiss_index, save_faiss_index
 
 
 
@@ -126,28 +111,3 @@ def create_embeddings(texts: list[str]):
     return embeddings
 
 
-def build_faiss_index(embeddings: np.ndarray):
-
-    dimension = embeddings.shape[1]
-
-    index = faiss.IndexFlatIP(
-        dimension
-    )
-
-    index.add(
-        embeddings.astype("float32")
-    )
-
-    return index
-
-def save_faiss_index(meeting_id: int,index):
-
-    path = (
-        VECTOR_FOLDER /
-        f"meeting_{meeting_id}.index"
-    )
-
-    faiss.write_index(
-        index,
-        str(path),
-    )

@@ -6,7 +6,6 @@ from app.api.user import router as user_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.ai.model_manager import model_manager
-from app.core.config import Settings
 
 
 
@@ -45,6 +44,10 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 # from fastapi import Depends, FastAPI
 # from sqlalchemy.orm import Session
 # from app.services.rag.embedding import create_embeddings, run_embedding_pipeline
+# from app.services.rag.generation import generate_answer
+# from app.core.config import Settings
+# from app.services.rag.retrieval import search_meeting
+
 
 
 # app = FastAPI()
@@ -114,7 +117,14 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 # @app.get('/test')
 # def test_embedding():
+#     answer = generate_answer(meeting_id=15, question="What are the next tasks after integrating the speech recognition model?")
+#     return {
+#         'question': "What are the next tasks after integrating the speech recognition model?",
+#         'answer': answer
+#     }
+    # return search_meeting(15,"why we select FAISS")
 #     run_embedding_pipeline(meeting_id=15)
+
 
 # # print("Generated Chunks:")
 # # for c in chunks:
