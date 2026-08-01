@@ -5,6 +5,7 @@
 
 # audio files
 uploads/
+storage/
 
 # Python
 __pycache__/

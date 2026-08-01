@@ -47,6 +47,12 @@ class Meeting(Base):
         default=TranscriptStatus.NOT_STARTED
     )
 
+    embedding_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True,
+        default=TranscriptStatus.NOT_STARTED
+    )
+
     summary: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,

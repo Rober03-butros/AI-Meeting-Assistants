@@ -1,3 +1,6 @@
+# import threading
+# from app.services.rag.embedding import run_embedding_pipeline
+
 # from sqlalchemy.orm import Session
 # from app.ai.whisper import DEVICE
 # from app.core.database import SessionLocal
@@ -156,8 +159,18 @@
 #         meeting.transcript = transcrip
 
 
-#         meeting.transcript_status = TranscriptStatus.COMPLETED
-#         # meeting.embedding_status = TranscriptStatus.PROCESSING
+        # meeting.transcript_status = TranscriptStatus.COMPLETED
+        # meeting.embedding_status = TranscriptStatus.PROCESSING
+
+        # threading.Thread(
+
+        #     target=run_embedding_pipeline,
+
+        #     args=(meeting.id,),
+
+        #     daemon=True,
+
+        # ).start()
 
 
 

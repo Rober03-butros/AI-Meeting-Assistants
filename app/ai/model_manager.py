@@ -1,6 +1,5 @@
 # from app.ai.whisper import load_whisper
-# from app.ai.summarizer import load_summary_model
-# from app.ai.rag import load_rag_model
+from app.ai.embedding_model import load_embedding_model
 
 
 class ModelManager:
@@ -8,8 +7,7 @@ class ModelManager:
     def __init__(self):
 
         self.whisper = None
-        self.summarizer = None
-        self.rag = None
+        self.embedding_model = None
 
 
 
@@ -19,6 +17,7 @@ class ModelManager:
 
 
         # self.whisper = load_whisper()
+        self.embedding_model = load_embedding_model()
 
  
         # لاحقا

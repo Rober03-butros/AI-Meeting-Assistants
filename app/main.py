@@ -5,21 +5,21 @@ from app.api.meeting import router as meeting_router
 from app.api.user import router as user_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-# from app.ai.model_manager import model_manager
+from app.ai.model_manager import model_manager
 from app.core.config import Settings
 
 
 
 app = FastAPI()
 
-# @app.on_event("startup")
-# def startup_event():
+@app.on_event("startup")
+def startup_event():
     
-#     print("Starting server...")
+    print("Starting server...")
 
-#     model_manager.load_models()
+    model_manager.load_models()
 
-#     print("Server ready.")
+    print("Server ready.")
 
 
 app.add_middleware(
@@ -44,6 +44,7 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 # from app.services.rag.chunk import create_chunks,save_chunks
 # from fastapi import Depends, FastAPI
 # from sqlalchemy.orm import Session
+# from app.services.rag.embedding import create_embeddings, run_embedding_pipeline
 
 
 # app = FastAPI()
@@ -111,7 +112,11 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 #     save_chunks(db, meeting_id=15, chunks=chunks)
 #     return 'chunks saved successfully'
 
-# print("Generated Chunks:")
-# for c in chunks:
-#     print(f"Start: {c.start}, End: {c.end}, Text: {c.text}")
+# @app.get('/test')
+# def test_embedding():
+#     run_embedding_pipeline(meeting_id=15)
+
+# # print("Generated Chunks:")
+# # for c in chunks:
+# #     print(f"Start: {c.start}, End: {c.end}, Text: {c.text}")
 
