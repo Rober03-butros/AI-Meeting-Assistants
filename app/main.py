@@ -117,22 +117,22 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 # @app.get('/test')
 # def test_embedding():
-#     question = "What are the next tasks after integrating the speech recognition model?"
-#     answer = generate_answer(meeting_id=15, question=question)
+#     question = "Why we use FIASS?"
+# #     answer = generate_answer(meeting_id=15, question=question)
+# #     return {
+# #         'question': question,
+# #         'answer': answer
+# #     }
+#     without_reranker =  search_meeting(15,question)
+#     with_reranker = rerank_chunks(
+#         query=question,
+#         retrieved_chunks=without_reranker,
+#         k=3
+#     )
 #     return {
-#         'question': question,
-#         'answer': answer
+#         'without_reranker': without_reranker,
+#         'with_reranker': with_reranker
 #     }
-    # without_reranker =  search_meeting(15,question)
-    # with_reranker = rerank_chunks(
-    #     query=question,
-    #     retrieved_chunks=without_reranker,
-    #     k=3
-    # )
-    # return {
-    #     'without_reranker': without_reranker,
-    #     'with_reranker': with_reranker
-    # }
     # run_embedding_pipeline(meeting_id=15)
 
 

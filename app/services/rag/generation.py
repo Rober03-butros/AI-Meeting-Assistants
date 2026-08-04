@@ -1,4 +1,5 @@
 from app.ai.llama import generate
+from app.models.chat_messages import ChatMessage
 from app.services.rag.retrieval import search_meeting
 from app.services.rag.reranker import rerank_chunks
 
@@ -47,24 +48,54 @@ Answer:
 
 
 
-def generate_answer(meeting_id: int,question: str,):
+from sqlalchemy.orm import Session
+
+
+
+
+def generate_answer(
+    db: Session,
+    meeting_id: int,
+    user_id: int,
+    question: str,
+):
+
+    chat = ChatMessage(
+        meeting_id=meeting_id,
+        user_id=user_id,
+        question=question,
+    )
+
+    db.add(chat)
+    db.commit()
+    db.refresh(chat)
+
 
     chunks = search_meeting(
         meeting_id=meeting_id,
         question=question,
-        top_k=8
+        top_k=8,
     )
+
 
     chunks = rerank_chunks(
         query=question,
         retrieved_chunks=chunks,
-        k=3
+        k=3,
     )
 
 
     if len(chunks) == 0:
 
-        return "No information found."
+        chat.answer = "No information found."
+        chat.sources = []
+
+        db.commit()
+
+        return {
+            "answer": chat.answer,
+            "sources": chat.sources,
+        }
 
 
     prompt = build_prompt(
@@ -78,4 +109,21 @@ def generate_answer(meeting_id: int,question: str,):
     )
 
 
-    return answer
+    chat.answer = answer
+
+    chat.sources = [
+        {
+            "start": chunk["start"],
+            "end": chunk["end"],
+        }
+        for chunk in chunks
+    ]
+
+
+    db.commit()
+
+
+    return {
+        "answer": chat.answer,
+        "sources": chat.sources,
+    }

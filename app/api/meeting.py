@@ -13,8 +13,10 @@ from app.models.user import User
 
 from app.schemas.meeting import MeetingResponse
 from app.services.meeting_services import create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
+from app.services.rag.generation import generate_answer
 from app.services.transcription import run_transcription
 from app.core.Enum import TranscriptStatus
+from app.schemas.chatschema import QuestionRequest, AnswerResponse
 
 
 router = APIRouter(
@@ -313,3 +315,29 @@ def generate_transcript(
     return {
         "message": "Transcript generation started."
     }
+
+@router.post("/{meeting_id}/chat",response_model=AnswerResponse,)
+def meeting_chat(
+    meeting_id: int,
+    request: QuestionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_verified_user),
+):
+
+    meeting = get_meeting_by_id(
+        db=db,
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+    )
+
+    result = generate_answer(
+        db=db,
+        meeting_id=meeting.id,
+        user_id=current_user.id,
+        question=request.question,
+    )
+
+    return AnswerResponse(
+        answer=result["answer"],
+        sources=result["sources"],
+    )

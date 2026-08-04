@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from app.models.audio import Audio
     from app.models.meeting_user import MeetingUser
     from app.models.chunk import MeetingChunk
+    from app.models.chat_messages import ChatMessage
+
 
 
 
@@ -89,4 +91,10 @@ class Meeting(Base):
     chunks: Mapped[list["MeetingChunk"]] = relationship(
     back_populates="meeting",
     cascade="all, delete-orphan",
+    )
+
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        "ChatMessage",
+        back_populates="meeting",
+        cascade="all, delete-orphan",
     )
