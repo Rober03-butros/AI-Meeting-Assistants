@@ -1,5 +1,6 @@
 from app.ai.llama import generate
 from app.services.rag.retrieval import search_meeting
+from app.services.rag.reranker import rerank_chunks
 
 
 SYSTEM_PROMPT = """
@@ -51,7 +52,13 @@ def generate_answer(meeting_id: int,question: str,):
     chunks = search_meeting(
         meeting_id=meeting_id,
         question=question,
-        top_k=5,
+        top_k=8
+    )
+
+    chunks = rerank_chunks(
+        query=question,
+        retrieved_chunks=chunks,
+        k=3
     )
 
 

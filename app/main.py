@@ -47,7 +47,7 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 # from app.services.rag.generation import generate_answer
 # from app.core.config import Settings
 # from app.services.rag.retrieval import search_meeting
-
+# from app.services.rag.reranker import rerank_chunks
 
 
 # app = FastAPI()
@@ -117,16 +117,26 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 # @app.get('/test')
 # def test_embedding():
-#     answer = generate_answer(meeting_id=15, question="What are the next tasks after integrating the speech recognition model?")
+#     question = "What are the next tasks after integrating the speech recognition model?"
+#     answer = generate_answer(meeting_id=15, question=question)
 #     return {
-#         'question': "What are the next tasks after integrating the speech recognition model?",
+#         'question': question,
 #         'answer': answer
 #     }
-    # return search_meeting(15,"why we select FAISS")
-#     run_embedding_pipeline(meeting_id=15)
+    # without_reranker =  search_meeting(15,question)
+    # with_reranker = rerank_chunks(
+    #     query=question,
+    #     retrieved_chunks=without_reranker,
+    #     k=3
+    # )
+    # return {
+    #     'without_reranker': without_reranker,
+    #     'with_reranker': with_reranker
+    # }
+    # run_embedding_pipeline(meeting_id=15)
 
 
-# # print("Generated Chunks:")
-# # for c in chunks:
-# #     print(f"Start: {c.start}, End: {c.end}, Text: {c.text}")
+# print("Generated Chunks:")
+# for c in chunks:
+#     print(f"Start: {c.start}, End: {c.end}, Text: {c.text}")
 

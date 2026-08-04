@@ -6,9 +6,7 @@ def load_embedding_model():
 
     print("Loading embedding model...")
 
-    model = SentenceTransformer(
-        "BAAI/bge-m3"
-    )
+    model = SentenceTransformer("BAAI/bge-m3")
 
     print("Embedding model loaded.")
 
