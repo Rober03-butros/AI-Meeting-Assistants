@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_verified_user
+from app.models.chat_messages import ChatMessage
 from app.models.meeting import Meeting
 from app.models.meeting_user import MeetingUser
 from app.models.user import User
@@ -16,8 +17,8 @@ from app.services.meeting_services import create_meeting, delete_meeting, get_me
 from app.services.rag.generation import generate_answer
 from app.services.transcription import run_transcription
 from app.core.Enum import TranscriptStatus
-from app.schemas.chatschema import QuestionRequest, AnswerResponse
-
+from app.schemas.chatschema import ChatHistoryResponse, ChatMessageResponse, QuestionRequest, AnswerResponse
+from app.services.chat import ask, chat_history
 
 router = APIRouter(
     prefix="/meetings",
@@ -330,7 +331,7 @@ def meeting_chat(
         user_id=current_user.id,
     )
 
-    result = generate_answer(
+    result = ask(
         db=db,
         meeting_id=meeting.id,
         user_id=current_user.id,
@@ -341,3 +342,13 @@ def meeting_chat(
         answer=result["answer"],
         sources=result["sources"],
     )
+
+
+@router.get("/{meeting_id}/chat",response_model=ChatHistoryResponse)
+def get_chat_history(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_verified_user),
+):
+
+    return chat_history(db, meeting_id, current_user)

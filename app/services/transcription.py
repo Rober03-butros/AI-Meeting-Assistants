@@ -152,8 +152,7 @@
         
 #         transcrip = ''
 #         for segment in result["segments"]:
-#             speaker = segment.get("speaker","UNKNOWN")
-#             transcrip += '\n'+f"[{segment['start']:.2f} -> {segment['end']:.2f}] " + f"{speaker}: {segment['text']}"
+#             transcrip += '\n'+f"{segment['text']}"
 
 
 #         meeting.transcript = transcrip

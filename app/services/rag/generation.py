@@ -2,19 +2,9 @@ from app.ai.llama import generate
 from app.models.chat_messages import ChatMessage
 from app.services.rag.retrieval import search_meeting
 from app.services.rag.reranker import rerank_chunks
+from sqlalchemy.orm import Session
 
 
-SYSTEM_PROMPT = """
-You are an AI assistant answering questions about a meeting.
-
-Answer ONLY using the provided meeting transcript.
-
-If the answer does not exist in the transcript, reply:
-
-"I couldn't find this information in the meeting."
-
-Do not invent information.
-"""
 
 
 def build_prompt(question: str,chunks: list[dict]) -> str:
@@ -24,79 +14,47 @@ def build_prompt(question: str,chunks: list[dict]) -> str:
     for i, chunk in enumerate(chunks, start=1):
 
         context += (
-            f"[Chunk {i}]\n"
-            f"Time: {chunk['start']} - {chunk['end']} seconds\n"
             f"{chunk['text']}\n\n"
         )
 
 
-    prompt = f"""
-{SYSTEM_PROMPT}
+    prompt =  f"""
+        أنت مساعد ذكي متخصص في الإجابة عن أسئلة الاجتماعات.
 
-Meeting Transcript:
+        ستحصل على أجزاء من نص اجتماع.
 
-{context}
+        التعليمات:
 
-Question:
+        - أجب اعتمادًا على النص المرفق فقط.
+        - إذا كانت الإجابة موزعة على أكثر من جزء، اجمعها في إجابة واحدة.
+        - قدم إجابة واضحة ومفصلة.
+        - لا تختصر الإجابة إذا كانت المعلومات موجودة.
+        - لا تخترع أي معلومة غير موجودة في النص.
+        - إذا لم تكن الإجابة موجودة في النص فقل:
+        "لم أجد هذه المعلومة في الاجتماع."
 
-{question}
+        ====================
 
-Answer:
-"""
+        نص الاجتماع:
+
+        {context}
+
+        ====================
+
+        السؤال:
+
+        {question}
+
+        ====================
+
+        الإجابة:
+    """
 
     return prompt
 
 
 
-from sqlalchemy.orm import Session
-
-
-
-
-def generate_answer(
-    db: Session,
-    meeting_id: int,
-    user_id: int,
-    question: str,
-):
-
-    chat = ChatMessage(
-        meeting_id=meeting_id,
-        user_id=user_id,
-        question=question,
-    )
-
-    db.add(chat)
-    db.commit()
-    db.refresh(chat)
-
-
-    chunks = search_meeting(
-        meeting_id=meeting_id,
-        question=question,
-        top_k=8,
-    )
-
-
-    chunks = rerank_chunks(
-        query=question,
-        retrieved_chunks=chunks,
-        k=3,
-    )
-
-
-    if len(chunks) == 0:
-
-        chat.answer = "No information found."
-        chat.sources = []
-
-        db.commit()
-
-        return {
-            "answer": chat.answer,
-            "sources": chat.sources,
-        }
-
+def generate_answer(chunks: list[dict],question: str):
 
     prompt = build_prompt(
         question,
@@ -105,13 +63,11 @@ def generate_answer(
 
 
     answer = generate(
-        prompt
+        prompt,
+        temperature=0.2
     )
 
-
-    chat.answer = answer
-
-    chat.sources = [
+    sources = [
         {
             "start": chunk["start"],
             "end": chunk["end"],
@@ -120,10 +76,7 @@ def generate_answer(
     ]
 
 
-    db.commit()
-
-
     return {
-        "answer": chat.answer,
-        "sources": chat.sources,
+        "answer": answer,
+        "sources": sources,
     }
