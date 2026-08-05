@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>My meetings · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css">
+<link rel="stylesheet" href="assets/css/app.css?v=20">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -28,7 +28,8 @@
         <span id="searchIcon"></span>
         <input class="input" id="search" type="search" placeholder="Search meetings by title…" aria-label="Search meetings">
       </div>
-      <select class="input" id="sort" aria-label="Sort meetings" style="width:auto;min-width:170px">
+      <select class="input" id="sort" aria-label="Sort meetings"
+              style="width:auto;min-width:186px;appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:46px;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa8bf' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 16px center;background-size:15px 15px;cursor:pointer">
         <option value="new">Newest first</option>
         <option value="old">Oldest first</option>
         <option value="az">Title A–Z</option>
@@ -46,7 +47,7 @@
 
 <script type="module">
 import { $, api, icon, requireAuth, mountAppBar, relativeTime,
-         formatDate, escapeHtml } from './assets/js/app.js';
+         formatDate, escapeHtml } from './assets/js/app.js?v=20';
 
 if (requireAuth()) {
   mountAppBar({ active: 'meetings' });
@@ -55,6 +56,25 @@ if (requireAuth()) {
 
   let all = [];
   const list = $('#list');
+
+  /* Mirror the meeting page's transcription state in the list. */
+  function statusBadge(m) {
+    const raw = String(m.status ?? m.transcription_status ?? m.state ?? '').toLowerCase().trim();
+    const text = (typeof m.transcripts === 'string' ? m.transcripts : m.transcript) || '';
+
+    if (['processing', 'pending', 'queued', 'running', 'in_progress', 'inprogress',
+         'transcribing', 'started', 'busy', 'working'].includes(raw))
+      return `<span class="badge badge--live"><span class="dot dot--pulse"></span> Transcribing</span>`;
+
+    if (['failed', 'error', 'failure', 'cancelled', 'canceled'].includes(raw))
+      return `<span class="badge" style="color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent)">
+                ${icon('alert', 13)} Failed</span>`;
+
+    if (text.trim() || ['done', 'completed', 'complete', 'success', 'succeeded', 'finished', 'ready'].includes(raw))
+      return `<span class="badge badge--brand">${icon('doc', 13)} Transcript</span>`;
+
+    return '';
+  }
 
   const render = () => {
     const q = $('#search').value.trim().toLowerCase();
@@ -89,7 +109,7 @@ if (requireAuth()) {
             ${escapeHtml(relativeTime(m.created_at) || formatDate(m.created_at))}
           </span>
         </span>
-        ${m.summary ? `<span class="badge badge--brand">${icon('sparkle', 13)} Summary</span>` : ''}
+        ${statusBadge(m)}
         <span class="meeting-card__chev">${icon('chevron', 18)}</span>
       </a>`).join('');
   };

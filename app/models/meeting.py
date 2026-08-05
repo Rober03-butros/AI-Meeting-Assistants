@@ -1,15 +1,20 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text, DateTime
+from sqlalchemy import  ForeignKey, String, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.Enum import TranscriptStatus
 from app.core.database import Base
 
 
 if TYPE_CHECKING:
     from app.models.audio import Audio
     from app.models.meeting_user import MeetingUser
+    from app.models.chunk import MeetingChunk
+    from app.models.chat_messages import ChatMessage
+
+
     from app.models.segment import Segment
 
 
@@ -30,6 +35,25 @@ class Meeting(Base):
     transcript: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    '''
+    NOT_STARTED
+    PROCESSING
+    COMPLETED
+    FAILED
+    '''
+
+    transcript_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default=TranscriptStatus.NOT_STARTED
+    )
+
+    embedding_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True,
+        default=TranscriptStatus.NOT_STARTED
     )
 
     summary: Mapped[str | None] = mapped_column(
@@ -65,6 +89,13 @@ class Meeting(Base):
         cascade="all, delete-orphan",
     )
 
+    chunks: Mapped[list["MeetingChunk"]] = relationship(
+    back_populates="meeting",
+    cascade="all, delete-orphan",
+    )
+
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        "ChatMessage",
     segments: Mapped[list["Segment"]] = relationship(
         "Segment",
         back_populates="meeting",

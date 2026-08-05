@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException
 from pathlib import Path
 
 from fastapi import UploadFile, File, Depends
@@ -6,13 +6,19 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.chat_messages import ChatMessage
 from app.core.dependencies import get_current_user, get_verified_user
 from app.models.meeting import Meeting
 from app.models.meeting_user import MeetingUser
 from app.models.user import User
 
 from app.schemas.meeting import MeetingResponse
-from app.services.meeting_services import add_transcript_to_meeting, create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
+from app.services.meeting_services import add_transcript_to_meeting,create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
+from app.services.rag.generation import generate_answer
+from app.services.transcription import run_transcription
+from app.core.Enum import TranscriptStatus
+from app.schemas.chatschema import ChatHistoryResponse, ChatMessageResponse, QuestionRequest, AnswerResponse
+from app.services.chat import ask, chat_history
 from app.services.segment_services import clean_text
 
 
@@ -105,6 +111,8 @@ def get_meeting(
 
         "transcripts": meeting.transcript,
 
+        "transcript_status": meeting.transcript_status,
+
         "summary": meeting.summary,
 
 
@@ -162,7 +170,7 @@ def get_meeting_audio(
 
     return FileResponse(
         path=file_path,
-        media_type="audio/webm",
+        media_type="audio/wav",
         filename=file_path.name
     )
 
@@ -278,3 +286,89 @@ def remove_meeting(
         meeting_id=meeting_id,
         user_id=current_user.id
     )
+
+
+@router.post("/{meeting_id}/transcribe")
+def generate_transcript(
+    meeting_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_verified_user),
+):
+
+    meeting = get_meeting_by_id(
+        db=db,
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+    )
+
+    owner = get_meeting_owner(
+        db=db,
+        meeting_id=meeting_id,
+    ) 
+
+    if owner.id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only meeting owner can generate transcript."
+        )
+
+    if meeting.transcript_status == TranscriptStatus.PROCESSING:
+        raise HTTPException(
+            status_code=409,
+            detail="Transcript is already being generated."
+        )
+
+    if meeting.transcript_status == TranscriptStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail="Transcript already exists."
+        )
+
+    
+    db.commit()
+
+    background_tasks.add_task(
+        run_transcription,
+        meeting.id,
+    )
+
+    return {
+        "message": "Transcript generation started."
+    }
+
+@router.post("/{meeting_id}/chat",response_model=AnswerResponse,)
+def meeting_chat(
+    meeting_id: int,
+    request: QuestionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_verified_user),
+):
+
+    meeting = get_meeting_by_id(
+        db=db,
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+    )
+
+    result = ask(
+        db=db,
+        meeting_id=meeting.id,
+        user_id=current_user.id,
+        question=request.question,
+    )
+
+    return AnswerResponse(
+        answer=result["answer"],
+        sources=result["sources"],
+    )
+
+
+@router.get("/{meeting_id}/chat",response_model=ChatHistoryResponse)
+def get_chat_history(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_verified_user),
+):
+
+    return chat_history(db, meeting_id, current_user)
