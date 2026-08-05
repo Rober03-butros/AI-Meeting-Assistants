@@ -96,6 +96,10 @@ class Meeting(Base):
 
     chat_messages: Mapped[list["ChatMessage"]] = relationship(
         "ChatMessage",
+        back_populates="meeting",
+        cascade="all, delete-orphan",
+    )
+
     segments: Mapped[list["Segment"]] = relationship(
         "Segment",
         back_populates="meeting",
