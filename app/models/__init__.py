@@ -7,3 +7,4 @@ from app.models.meeting import Meeting
 from app.models.meeting_user import MeetingUser
 from app.models.chunk import MeetingChunk
 from app.models.chat_messages import ChatMessage
+from app.models.segment import Segment
