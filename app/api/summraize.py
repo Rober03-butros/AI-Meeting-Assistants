@@ -11,7 +11,7 @@ from app.schemas.meeting import Meeting_transcript_Response, MeetingResponse, Me
 from app.core.dependencies import get_verified_user
 from app.core.database import get_db
 from app.services.meeting_services import add_transcript_to_meeting
-from app.services.segment_services import clean_text, segment_function, summarize_segment
+from app.services.segment_services import segment_function, summarize_segment
 
 
 

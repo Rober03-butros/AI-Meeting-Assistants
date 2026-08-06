@@ -13,7 +13,6 @@ from app.models.user import User
 
 from app.schemas.meeting import MeetingResponse
 from app.services.meeting_services import add_transcript_to_meeting, create_meeting, delete_meeting, get_meeting_by_id, get_meeting_owner,get_user_meetings
-from app.services.segment_services import clean_text
 
 
 router = APIRouter(
@@ -93,7 +92,6 @@ def get_meeting(
     )
 
     owner_id = get_meeting_owner(db,meeting.id).id
-    meeting.transcript = clean_text(meeting.transcript)
 
     return {
 

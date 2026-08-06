@@ -5,64 +5,12 @@ import httpx
 from sqlalchemy.orm import Session
 from app.models.meeting import Meeting
 from app.models.segment import Segment
-
+from app.core.model_tokenier import tokenizer
+from app.schemas import meeting
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
-def clean_text(text: str) -> str:
-    print("NEW clean_text() called")
 
-    pattern = r'"text":\s*"(?P<text>[^"]*)",\s*"speaker":\s*"(?P<speaker>S\d+)"'
-
-    matches = re.finditer(pattern, text)
-
-    extracted_data = []
-
-    for match in matches:
-        dialogue = match.group("text")
-        speaker = match.group("speaker").replace("S", "speaker")
-
-        extracted_data.append({speaker: dialogue})
-
-    concatenated_dialogue = ""
-
-    for item in extracted_data:
-        speaker = next(iter(item))
-        concatenated_dialogue += f"{speaker}: {item[speaker]}\n"
-
-    return concatenated_dialogue
-
-async def segment_function(meeting_id: int, db: Session):
-    meeting = (
-        db.query(Meeting)
-        .filter(Meeting.id == meeting_id)
-        .first()
-    )
-
-    if meeting is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Meeting not found"
-        )
-
-    if not meeting.transcript:
-        raise HTTPException(
-            status_code=400,
-            detail="Meeting has no transcript"
-        )
-    if db.query(Segment).filter(Segment.meeting_id == meeting.id).first():
-        raise HTTPException(
-            status_code=400,
-            detail="Segments already exist for this meeting"
-        )
-    Cleaned_Transcript = clean_text(meeting.transcript)
-    # print("Cleaned Transcript:", meeting.transcript)  # Debugging line
-    payload = {
-        "model": "qwen3b-f16",
-        "stream": False,
-        "messages": [
-            {
-            "role": "system",
-            "content": """
+system_prompt_text = """
     أنت خبير في تقسيم نصوص الاجتماعات.
 
     مهمتك هي تقسيم النص إلى مقاطع (Topic Segments) فقط.
@@ -98,18 +46,72 @@ async def segment_function(meeting_id: int, db: Session):
     [
       {
         "topic":"عنوان قصير",
-        "text":"speaker1: (النص كما هو)
-        speaker2: (النص كما هو)
-        ..."
+        "text":"(النص كما هو)"
       }
     ]
-    """
+   """ 
+def calculate_params(transcript: str, system_prompt: str, estimated_segments: int = 10):
+    input_tokens = len(tokenizer.encode(system_prompt + transcript))
+    
+    json_overhead = estimated_segments * 20
+    
+    estimated_output = input_tokens + json_overhead
+    
+    num_predict = int(estimated_output * 1.3)
+    num_ctx = int((input_tokens + num_predict) * 1.15)  # extra headroom
+    
+    def round_ctx(n):
+        for step in [512,1024,2048, 4096, 8192, 16384, 32768]:
+            if n <= step:
+                return step
+        return 32768  # Qwen2.5 practical ceiling without special rope scaling
+    
+    return num_predict, round_ctx(num_ctx)
+
+async def segment_function(meeting_id: int, db: Session):
+    meeting = (
+        db.query(Meeting)
+        .filter(Meeting.id == meeting_id)
+        .first()
+    )
+
+    if meeting is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Meeting not found"
+        )
+
+    if not meeting.transcript:
+        raise HTTPException(
+            status_code=400,
+            detail="Meeting has no transcript"
+        )
+    if db.query(Segment).filter(Segment.meeting_id == meeting.id).first():
+        raise HTTPException(
+            status_code=400,
+            detail="Segments already exist for this meeting"
+        )
+    num_predict, num_ctx = calculate_params(meeting.transcript, system_prompt_text)
+    payload = {
+        "model": "segment-model",
+        "stream": False,
+        "messages": [
+            {
+            "role": "system",
+            "content": system_prompt_text
         },
         {
             "role":"user",
-            "content": Cleaned_Transcript
+            "content": meeting.transcript
             }
-        ]
+        ],
+    "options": {
+        "temperature": 0,
+        "num_predict": num_predict,
+        "num_ctx": num_ctx,
+        "num_gpu": 999,
+        "num_thread": 8
+    }
     }
 
 
@@ -126,7 +128,7 @@ async def segment_function(meeting_id: int, db: Session):
 
     model_output = result["message"]["content"]
 
-
+    # print("Model Output:", model_output)  # Debugging line
     try:
         segments_data = json.loads(model_output)
 
@@ -136,7 +138,7 @@ async def segment_function(meeting_id: int, db: Session):
             detail="Model did not return valid JSON"
         )
 
-    print("Segments Data:", segments_data)  # Debugging line
+    # print("Segments Data:", segments_data)  # Debugging line
     # Save segments
     db.query(Segment).filter(Segment.meeting_id == meeting.id).delete()
     db.commit()
@@ -202,6 +204,7 @@ async def summarize_segment(segment_id: int, db: Session):
             status_code=400,
             detail="Segment is already summarized"
         )
+    num_predict, num_ctx = calculate_params(segment.segment, "أنت خبير في تلخيص الاجتماعات واستخراج القرارات.", estimated_segments=1)
     payload = {
         "model": "syrian-summary",
         "stream": False,
@@ -212,9 +215,16 @@ async def summarize_segment(segment_id: int, db: Session):
             },
             {
                 "role": "user",
-                "content": f"لخص واستخرج القرارات : {segment.segment}"
+                "content": f"لخص واستخرج كل القرارات الواردة في الاجتماع : {segment.segment}"
             }
-        ]
+        ],
+        "options": {
+            "temperature": 0,
+            "num_predict": num_predict,
+            "num_ctx": num_ctx,
+            "num_gpu": 999,
+            "num_thread": 8
+        }
     }
 
     async with httpx.AsyncClient(timeout=1000) as client:
@@ -228,10 +238,11 @@ async def summarize_segment(segment_id: int, db: Session):
     result = response.json()
 
     output = result["message"]["content"]
+    # print("Model Output:", output)  # Debugging line
     summary_match = re.search(r"الملخص\s*:\s*(.*?)(?=\s*\|\s*القرارات\s*:|$)",output,re.DOTALL)
 
     decisions_match = re.search(r"القرارات\s*:\s*(.*)$",output,re.DOTALL)
-
+    # print("decisions_match:", decisions_match.group(1) if decisions_match else "No match")  # Debugging line
     segment.summary = summary_match.group(1).strip() if summary_match else ""
     segment.decisions = decisions_match.group(1).strip() if decisions_match else ""
     db.commit()
