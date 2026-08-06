@@ -5,6 +5,7 @@
 
 # audio files
 uploads/
+storage/
 
 # Python
 __pycache__/
@@ -13,7 +14,7 @@ __pycache__/
 *.pyd
 
 # Virtual Environment
-.venv/
+.meet/
 venv/
 env/
 
@@ -45,3 +46,5 @@ alembic/__pycache__/
 # SQLite
 *.db
 *.sqlite3
+
+trained_model_the_new_one_for_whisperX

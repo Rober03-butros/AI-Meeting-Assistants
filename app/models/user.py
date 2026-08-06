@@ -16,6 +16,7 @@ from app.models.meeting_user import MeetingUser
 if TYPE_CHECKING:
     from app.models.refresh_token import RefreshToken
     from app.models.email_verification import EmailVerification
+    from app.models.chat_messages import ChatMessage
 
 class User(Base):
     __tablename__ = "user"
@@ -42,4 +43,10 @@ class User(Base):
     "MeetingUser",
     back_populates="user",
     cascade="all, delete-orphan",
+    )
+
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        "ChatMessage",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
