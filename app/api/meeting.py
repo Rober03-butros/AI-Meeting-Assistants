@@ -19,7 +19,7 @@ from app.services.transcription import run_transcription
 from app.core.Enum import TranscriptStatus
 from app.schemas.chatschema import ChatHistoryResponse, ChatMessageResponse, QuestionRequest, AnswerResponse
 from app.services.chat import ask, chat_history
-from app.services.segment_services import clean_text
+# from app.services.segment_services import clean_text
 
 
 router = APIRouter(

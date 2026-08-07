@@ -35,7 +35,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_segments_id'), 'segments', ['id'], unique=False)
-    op.create_unique_constraint('unique_meeting_user', 'meeting_users', ['meeting_id', 'user_id'])
+    # op.create_unique_constraint('unique_meeting_user', 'meeting_users', ['meeting_id', 'user_id'])
     op.alter_column('meetings', 'audio_id',
                existing_type=sa.INTEGER(),
                nullable=True)

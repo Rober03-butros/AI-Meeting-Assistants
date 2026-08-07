@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Meeting · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css?v=20">
+<link rel="stylesheet" href="assets/css/app.css?v=23">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -39,6 +39,7 @@
         <div class="tabs" role="tablist">
           <button class="tab" role="tab" id="tab-summary"    aria-selected="true"  data-panel="panel-summary">Summary</button>
           <button class="tab" role="tab" id="tab-transcript" aria-selected="false" data-panel="panel-transcript">Transcript</button>
+          <button class="tab" role="tab" id="tab-chat" aria-selected="false" data-panel="panel-chat">Ask AI</button>
         </div>
 
         <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary">
@@ -66,6 +67,30 @@
           <div class="row" style="margin-top:14px">
             <button class="btn btn--sm btn--ghost" id="copyTranscript" type="button">Copy transcript</button>
             <button class="btn btn--sm btn--ghost" id="downloadTranscript" type="button">Download .txt</button>
+          </div>
+        </div>
+
+        <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
+          <div class="chat">
+            <div class="chat__log" id="chatLog" aria-live="polite">
+              <div class="skeleton skeleton--text"></div>
+              <div class="skeleton skeleton--text" style="width:70%"></div>
+            </div>
+
+            <div class="chat__suggest" id="chatSuggest" hidden>
+              <button class="chip" type="button">Summarise the key decisions</button>
+              <button class="chip" type="button">What are the action items?</button>
+              <button class="chip" type="button">Who attended and what did they say?</button>
+            </div>
+
+            <form class="chat__composer" id="chatForm">
+              <textarea class="input chat__input" id="chatInput" rows="1"
+                        placeholder="Ask anything about this meeting…"
+                        aria-label="Ask a question about this meeting"></textarea>
+              <button class="btn btn--primary btn--icon chat__send" id="chatSend"
+                      type="submit" aria-label="Send question"></button>
+            </form>
+            <p class="faint chat__hint">Enter to send · Shift+Enter for a new line</p>
           </div>
         </div>
       </section>
@@ -97,7 +122,7 @@
 <script type="module">
 import { $, $$, api, icon, toast, busy, requireAuth, mountAppBar, confirmDialog,
          formatDate, relativeTime, escapeHtml, initials, Tokens, CONFIG,
-         trackTranscription, notifyTranscription } from './assets/js/app.js?v=20';
+         trackTranscription, notifyTranscription } from './assets/js/app.js?v=23';
 
 if (requireAuth()) {
   mountAppBar({ active: 'meetings' });
@@ -127,6 +152,7 @@ if (requireAuth()) {
 
   let meeting = null;
   let transcript = '';
+  let transcriptRaw = '';
 
   /* ============================================================
      TRANSCRIPTION STATE MACHINE
@@ -197,10 +223,43 @@ if (requireAuth()) {
      <div class="skeleton skeleton--text" style="width:78%"></div>
      <div class="skeleton skeleton--text" style="width:85%"></div>`;
 
+  /* Strip diarisation metadata so the panel shows prose, not machine output.
+     Handles lines like:
+       [3.29 -> 11.81] SPEAKER_00:  text
+       [00:03.29 --> 00:11.81] SPEAKER_00: text
+       (3.29 - 11.81) Speaker 1: text
+       SPEAKER_00: text
+     Consecutive lines from the same speaker are merged into one paragraph. */
+  function cleanTranscript(raw) {
+    const src = String(raw || '').replace(/\r/g, '');
+    if (!src.trim()) return '';
+
+    const TIME = /^\s*[\[(<]?\s*\d{1,2}(?::\d{2}){0,2}(?:[.,]\d+)?\s*(?:-{1,2}>?|–|—|to)\s*\d{1,2}(?::\d{2}){0,2}(?:[.,]\d+)?\s*[\])>]?\s*/i;
+    const SPEAKER = /^\s*(?:speaker[\s_-]*\w+|spk[\s_-]*\w+|s\d+)\s*[:\-–]\s*/i;
+
+    const out = [];
+    let touched = false;
+
+    for (const line of src.split('\n')) {
+      let t = line;
+      if (TIME.test(t))    { t = t.replace(TIME, '');    touched = true; }
+      if (SPEAKER.test(t)) { t = t.replace(SPEAKER, ''); touched = true; }
+      t = t.trim();
+      if (t) out.push(t);
+    }
+
+    // Nothing matched -> leave the original untouched.
+    if (!touched) return src.trim();
+    return out.join(' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
   /** Single render function — every state change goes through here. */
   function render(next, { text = null, error = null } = {}) {
     state = next;
-    if (text !== null) transcript = String(text || '').trim();
+    if (text !== null) {
+      transcriptRaw = String(text || '').trim();
+      transcript = cleanTranscript(transcriptRaw);
+    }
 
     // Keep the local marker in sync with the machine.
     // NOTE: we deliberately do NOT clear it on done/failed here. The global
@@ -442,6 +501,170 @@ if (requireAuth()) {
       toast(err.message || 'Could not load this meeting', 'error');
     }
   })();
+
+  /* ============================================================
+     RAG CHAT
+       GET  /meetings/{id}/chat  -> { messages: [...] }  (newest first)
+       POST /meetings/{id}/chat  -> { answer, sources: [{start,end}] }
+     ============================================================ */
+  const chatLog   = $('#chatLog');
+  const chatForm  = $('#chatForm');
+  const chatInput = $('#chatInput');
+  const chatSend  = $('#chatSend');
+  chatSend.innerHTML = icon('arrow', 18);
+
+  let chatBusy = false;
+
+  /* Arabic/Hebrew content must render right-to-left. */
+  const isRTL = t => /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFF]/.test(String(t || ''));
+  const dirOf = t => (isRTL(t) ? 'rtl' : 'ltr');
+
+  const mmss = s => {
+    const n = Math.max(0, Math.floor(Number(s) || 0));
+    return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+  };
+
+  /** Merge overlapping/duplicate source ranges, then sort by start. */
+  function tidySources(sources) {
+    const list = (Array.isArray(sources) ? sources : [])
+      .map(s => {
+        const a = Number(s?.start) || 0, b = Number(s?.end) || 0;
+        return { start: Math.min(a, b), end: Math.max(a, b) };   // never render 03:30-02:30
+      })
+      .filter(s => s.end > s.start)
+      .sort((a, b) => a.start - b.start);
+    const out = [];
+    for (const s of list) {
+      const prev = out[out.length - 1];
+      if (prev && s.start <= prev.end) prev.end = Math.max(prev.end, s.end);
+      else out.push({ ...s });
+    }
+    return out;
+  }
+
+  function sourcesHTML(sources) {
+    const list = tidySources(sources);
+    if (!list.length) return '';
+    // NOTE: built as a single line — .chat__bubble uses white-space:pre-wrap,
+    // so any newline/indent inside this markup would render as real whitespace
+    // and blow the chips apart.
+    const chips = list.map(s =>
+      `<button class="chip chip--src" type="button" data-seek="${s.start}" title="Play from ${mmss(s.start)}">${mmss(s.start)}\u2013${mmss(s.end)}</button>`
+    ).join('');
+    return `<div class="chat__sources"><span class="chat__sources-label">${icon('clock', 12)} Sources</span>${chips}</div>`;
+  }
+
+  function bubble({ question, answer, sources, pending }) {
+    const q = document.createElement('div');
+    q.className = 'chat__row chat__row--me';
+    q.innerHTML = `<div class="chat__bubble chat__bubble--me" dir="${dirOf(question)}">${escapeHtml(question)}</div>`;
+    chatLog.append(q);
+
+    const a = document.createElement('div');
+    a.className = 'chat__row';
+    const body = pending
+      ? '<span class="chat__typing"><i></i><i></i><i></i></span>'
+      : escapeHtml(answer) + sourcesHTML(sources);
+    a.innerHTML = `<span class="chat__avatar">${icon('sparkle', 15)}</span>`
+      + `<div class="chat__bubble" dir="${pending ? 'ltr' : dirOf(answer)}">${body}</div>`;
+    chatLog.append(a);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return a;
+  }
+
+  const chatEmpty = () => `
+    <div class="empty empty--sm">
+      <div class="empty__icon">${icon('sparkle', 24)}</div>
+      <p class="muted">Ask a question about this meeting.</p>
+    </div>`;
+
+  async function loadChatHistory() {
+    try {
+      const data = await api(`/meetings/${encodeURIComponent(meetingId)}/chat`, { cache: 'no-store' });
+      const messages = Array.isArray(data?.messages) ? data.messages
+                     : Array.isArray(data) ? data : [];
+      chatLog.innerHTML = '';
+      if (!messages.length) {
+        chatLog.innerHTML = chatEmpty();
+        $('#chatSuggest').hidden = false;
+        return;
+      }
+      // API returns newest-first; render oldest-first like a chat log.
+      [...messages]
+        .sort((x, y) => new Date(x.created_at || 0) - new Date(y.created_at || 0))
+        .forEach(m => bubble({ question: m.question, answer: m.answer, sources: m.sources }));
+      chatLog.scrollTop = chatLog.scrollHeight;
+    } catch (err) {
+      if (err.status === 401) return;
+      chatLog.innerHTML = `<p class="faint">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function askQuestion(question) {
+    if (chatBusy || !question.trim()) return;
+    chatBusy = true;
+    $('#chatSuggest').hidden = true;
+    $('.empty', chatLog)?.remove();
+
+    const answerRow = bubble({ question, pending: true });
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    busy(chatSend, true);
+
+    try {
+      const res = await api(`/meetings/${encodeURIComponent(meetingId)}/chat`, {
+        method: 'POST',
+        body: { question },
+      });
+      const answer = res?.answer ?? '(no answer returned)';
+      answerRow.innerHTML = `<span class="chat__avatar">${icon('sparkle', 15)}</span>`
+        + `<div class="chat__bubble" dir="${dirOf(answer)}">${escapeHtml(answer)}${sourcesHTML(res?.sources)}</div>`;
+    } catch (err) {
+      if (err.status === 401) return;
+      answerRow.innerHTML = `<span class="chat__avatar chat__avatar--err">${icon('alert', 15)}</span>`
+        + `<div class="chat__bubble chat__bubble--err">${escapeHtml(err.message || 'Request failed')}</div>`;
+    } finally {
+      busy(chatSend, false);
+      chatBusy = false;
+      chatLog.scrollTop = chatLog.scrollHeight;
+      chatInput.focus();
+    }
+  }
+
+  chatForm.addEventListener('submit', e => { e.preventDefault(); askQuestion(chatInput.value); });
+
+  // Enter sends, Shift+Enter newlines; textarea grows with content.
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatForm.requestSubmit(); }
+  });
+  chatInput.addEventListener('input', () => {
+    chatInput.dir = dirOf(chatInput.value);
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+  });
+
+  $('#chatSuggest').addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (chip) askQuestion(chip.textContent.trim());
+  });
+
+  // Source chips seek the audio player.
+  chatLog.addEventListener('click', e => {
+    const chip = e.target.closest('[data-seek]');
+    if (!chip) return;
+    const audio = $('#audio');
+    if (!audio || audio.classList.contains('hidden')) { toast('Audio is not available', 'info'); return; }
+    audio.currentTime = Number(chip.dataset.seek) || 0;
+    audio.play().catch(() => {});
+    audio.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  let chatLoaded = false;
+  $('#tab-chat').addEventListener('click', () => {
+    if (chatLoaded) return;            // load once, on first open
+    chatLoaded = true;
+    loadChatHistory();
+  });
 
   /* ---------- audio ---------- */
   (async () => {
