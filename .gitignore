@@ -15,7 +15,7 @@ __pycache__/
 
 # Virtual Environment
 .meet/
-venv/
+.venv/
 env/
 
 # IDE
