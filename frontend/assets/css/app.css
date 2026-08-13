@@ -1004,6 +1004,88 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .tab[aria-selected="true"] { background: var(--bg-2); color: var(--text); box-shadow: var(--shadow); }
 
 /* ============================================================
+   Segments + summarisation
+   ============================================================ */
+.seg-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 14px 16px;
+  border-radius: var(--r);
+  border: 1px dashed color-mix(in srgb, var(--brand) 42%, transparent);
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+}
+.seg-bar .btn { flex: 0 0 auto; }
+@media (max-width: 520px) {
+  .seg-bar { flex-direction: column; align-items: stretch; }
+  .seg-bar .btn { width: 100%; }
+}
+
+.segments { display: grid; gap: 10px; margin-top: 16px; }
+
+.segment {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  overflow: hidden;
+}
+.segment[open] { border-color: color-mix(in srgb, var(--brand) 38%, transparent); }
+
+.segment__head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.segment__head::-webkit-details-marker { display: none; }
+.segment__head:hover { background: var(--surface-2); }
+
+.segment__idx {
+  flex: none;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: .76rem; font-weight: 700;
+}
+.segment__title {
+  flex: 1 1 160px; min-width: 0;
+  font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.segment__chev { flex: none; color: var(--text-faint); transition: transform .2s var(--ease); }
+.segment[open] .segment__chev { transform: rotate(90deg); }
+
+.segment__body {
+  padding: 4px 14px 14px;
+  display: grid; gap: 12px;
+  border-top: 1px solid var(--border);
+}
+.segment__block { display: grid; gap: 4px; }
+.segment__block p { color: var(--text-dim); line-height: 1.7; overflow-wrap: anywhere; }
+.segment__block p[dir="rtl"] { text-align: right; }
+.segment__label {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-faint);
+}
+.segment__block--dec p {
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  border-left: 3px solid var(--ok);
+  color: var(--text);
+}
+.segment__block--dec p[dir="rtl"] { border-left: 0; border-right: 3px solid var(--ok); }
+
+.segment__raw > summary {
+  cursor: pointer; font-size: .82rem; color: var(--text-faint);
+  padding: 4px 0;
+}
+.segment__raw > summary:hover { color: var(--brand); }
+.segment__raw .prose { margin-top: 8px; max-height: 220px; font-size: .9rem; }
+
+/* ============================================================
    RAG chat
    ============================================================ */
 .chat { display: flex; flex-direction: column; gap: 12px; }

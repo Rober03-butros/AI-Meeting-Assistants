@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Meeting · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css?v=24">
+<link rel="stylesheet" href="assets/css/app.css?v=25">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -43,13 +43,28 @@
         </div>
 
         <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary">
+
+          <!-- Pipeline: segment -> summarise -->
+          <div class="seg-bar" id="segBar" hidden>
+            <div class="grow">
+              <div style="font-weight:650" id="segTitle">Not segmented yet</div>
+              <div class="faint" id="segHint">Split the transcript into topics, then summarise each one.</div>
+            </div>
+            <button class="btn btn--sm" id="segmentBtn" type="button">Segment</button>
+            <button class="btn btn--sm btn--primary" id="summariseAllBtn" type="button">Summarise all</button>
+          </div>
+
           <div class="prose" id="summary">
             <div class="skeleton skeleton--text"></div>
             <div class="skeleton skeleton--text" style="width:88%"></div>
             <div class="skeleton skeleton--text" style="width:72%"></div>
           </div>
+
+          <div class="segments" id="segments"></div>
+
           <div class="row" style="margin-top:14px">
             <button class="btn btn--sm btn--ghost" id="copySummary" type="button">Copy summary</button>
+            <button class="btn btn--sm btn--ghost" id="copyAllSegments" type="button" hidden>Copy all segments</button>
           </div>
         </div>
 
@@ -116,7 +131,7 @@
 <script type="module">
 import { $, $$, api, icon, toast, busy, requireAuth, mountAppBar, confirmDialog,
          formatDate, relativeTime, escapeHtml, initials, Tokens, CONFIG,
-         trackTranscription, notifyTranscription } from './assets/js/app.js?v=24';
+         trackTranscription, notifyTranscription } from './assets/js/app.js?v=25';
 
 if (requireAuth()) {
   mountAppBar({ active: 'meetings' });
@@ -474,6 +489,10 @@ if (requireAuth()) {
       render(initial, { text: initialText, error: meeting.error || null });
       if (initial === STATE.PROCESSING) startPolling();
 
+      // Segments only make sense once a transcript exists.
+      if (initial === STATE.DONE) loadSegments();
+      else segBar.hidden = true;
+
       $('#copySummary').disabled = !summary;
       $('#copySummary').onclick = () => copy(summary, 'Summary');
       $('#copyTranscript').onclick = () => copy(transcript, 'Transcript');
@@ -495,6 +514,202 @@ if (requireAuth()) {
       toast(err.message || 'Could not load this meeting', 'error');
     }
   })();
+
+  /* ============================================================
+     SEGMENTS + SUMMARISATION
+     ------------------------------------------------------------
+     Endpoint paths are gathered here — if any differ on your
+     backend, change them in this one block only.
+     ============================================================ */
+  const SEG_API = {
+    status:        id  => `/meetings/${id}/segments/status`,
+    segment:       id  => `/meetings/${id}/segment`,
+    listAll:       id  => `/meetings/${id}/segments`,
+    getOne:        sid => `/segments/${sid}`,
+    summariseOne:  sid => `/segments/${sid}/summarize`,
+    summariseAll:  id  => `/meetings/${id}/segments/summarize`,
+    summarised:    id  => `/meetings/${id}/segments/summarized`,
+  };
+
+  const segHost   = $('#segments');
+  const segBar    = $('#segBar');
+  const segmentBtn     = $('#segmentBtn');
+  const summariseAllBtn = $('#summariseAllBtn');
+
+  let segments = [];          // normalised Segment objects
+  let segBusy  = false;
+
+  const secs = v => {
+    const n = Math.max(0, Math.floor(Number(v) || 0));
+    return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+  };
+
+  /** Accept every response shape in the contract and return Segment[]. */
+  function readSegments(res) {
+    const arr = Array.isArray(res) ? res
+              : Array.isArray(res?.segments) ? res.segments
+              : Array.isArray(res?.segments_data) ? res.segments_data
+              : [];
+    return arr.map((x, i) => ({
+      id:        x.id ?? x.segment_id ?? null,
+      title:     x.title ?? x.topic ?? `Topic ${i + 1}`,
+      segment:   x.segment ?? x.text ?? '',
+      summary:   x.summary ?? null,
+      decisions: x.decisions ?? null,
+      start_time: Number(x.start_time) || 0,
+      end_time:   Number(x.end_time) || 0,
+    }));
+  }
+
+  /** Merge summary/decisions returned by the summarise endpoints. */
+  function applySummaries(res) {
+    const list = Array.isArray(res?.summarized_segments) ? res.summarized_segments : [];
+    for (const s of list) {
+      const hit = segments.find(x => String(x.id) === String(s.segment_id));
+      if (hit) { hit.summary = s.summary ?? hit.summary; hit.decisions = s.decisions ?? hit.decisions; }
+    }
+    return list.length;
+  }
+
+  function segStateRender() {
+    const total = segments.length;
+    const done  = segments.filter(s => (s.summary || '').trim()).length;
+
+    segBar.hidden = false;
+    $('#copyAllSegments').hidden = !total;
+
+    if (!total) {
+      $('#segTitle').textContent = 'Not segmented yet';
+      $('#segHint').textContent  = 'Split the transcript into topics, then summarise each one.';
+      segmentBtn.hidden = false;
+      summariseAllBtn.hidden = true;
+    } else {
+      $('#segTitle').textContent = `${total} topic${total === 1 ? '' : 's'}`;
+      $('#segHint').textContent  = done === total
+        ? 'All topics summarised.'
+        : `${done} of ${total} summarised.`;
+      segmentBtn.hidden = true;
+      summariseAllBtn.hidden = done === total;
+    }
+
+    if (!total) { segHost.innerHTML = ''; return; }
+
+    segHost.innerHTML = segments.map((s, i) => {
+      const hasSum = !!(s.summary || '').trim();
+      const dir = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFF]/.test(s.summary || s.segment || '') ? 'rtl' : 'ltr';
+      const time = (s.end_time > s.start_time)
+        ? `<button class="chip chip--src" type="button" data-seek="${s.start_time}">${secs(s.start_time)}\u2013${secs(s.end_time)}</button>` : '';
+      return `<details class="segment" ${i === 0 ? 'open' : ''} data-sid="${s.id ?? ''}">
+        <summary class="segment__head">
+          <span class="segment__idx">${i + 1}</span>
+          <span class="segment__title" dir="${dir}">${escapeHtml(s.title)}</span>
+          ${time}
+          ${hasSum ? `<span class="badge badge--brand">${icon('check', 12)} Summarised</span>`
+                   : `<span class="badge badge--warn">Pending</span>`}
+          <span class="segment__chev">${icon('chevron', 16)}</span>
+        </summary>
+        <div class="segment__body">
+          ${hasSum ? `<div class="segment__block"><span class="segment__label">Summary</span>
+                        <p dir="${dir}">${escapeHtml(s.summary)}</p></div>` : ''}
+          ${(s.decisions || '').trim() ? `<div class="segment__block segment__block--dec">
+                        <span class="segment__label">${icon('check', 12)} Decisions</span>
+                        <p dir="${dir}">${escapeHtml(s.decisions)}</p></div>` : ''}
+          ${!hasSum ? `<button class="btn btn--sm btn--primary seg-one" type="button"
+                        data-sid="${s.id ?? ''}">${icon('sparkle', 15)} Summarise this topic</button>` : ''}
+          ${(s.segment || '').trim() ? `<details class="segment__raw"><summary>Show transcript</summary>
+                        <p class="prose" dir="${dir}">${escapeHtml(s.segment)}</p></details>` : ''}
+        </div>
+      </details>`;
+    }).join('');
+  }
+
+  async function loadSegments() {
+    try {
+      const res = await api(SEG_API.listAll(meetingId), { cache: 'no-store' });
+      segments = readSegments(res);
+      // Fold in any summaries stored separately.
+      if (segments.length && segments.some(s => !s.summary)) {
+        try { applySummaries(await api(SEG_API.summarised(meetingId), { cache: 'no-store' })); } catch {}
+      }
+    } catch (err) {
+      if (err.status === 401) return;
+      segments = [];                                  // 404 = not segmented yet
+    }
+    segStateRender();
+  }
+
+  segmentBtn.onclick = async () => {
+    if (segBusy) return;
+    segBusy = true; busy(segmentBtn, true);
+    $('#segTitle').textContent = 'Segmenting…';
+    $('#segHint').textContent  = 'Splitting the transcript into topics.';
+    try {
+      const res = await api(SEG_API.segment(meetingId), { method: 'POST', body: { meeting_id: Number(meetingId) } });
+      segments = readSegments(res);
+      if (!segments.length) await loadSegments();     // response may omit the data
+      else segStateRender();
+      toast(`Created ${segments.length} topic${segments.length === 1 ? '' : 's'}`, 'ok');
+    } catch (err) {
+      if (err.status !== 401) toast(err.message || 'Segmentation failed', 'error', 6000);
+      segStateRender();
+    } finally { busy(segmentBtn, false); segBusy = false; }
+  };
+
+  summariseAllBtn.onclick = async () => {
+    if (segBusy) return;
+    segBusy = true; busy(summariseAllBtn, true);
+    $('#segHint').textContent = 'Summarising every topic — this can take a while.';
+    try {
+      const res = await api(SEG_API.summariseAll(meetingId), { method: 'POST', body: { meeting_id: Number(meetingId) } });
+      if (!applySummaries(res)) await loadSegments();
+      else segStateRender();
+      toast('All topics summarised', 'ok');
+    } catch (err) {
+      if (err.status !== 401) toast(err.message || 'Summarisation failed', 'error', 6000);
+    } finally { busy(summariseAllBtn, false); segBusy = false; }
+  };
+
+  /* Per-segment summarise + seek, delegated. */
+  segHost.addEventListener('click', async e => {
+    const seek = e.target.closest('[data-seek]');
+    if (seek) {
+      e.preventDefault();
+      const audio = $('#audio');
+      if (!audio || audio.classList.contains('hidden')) { toast('Audio is not available', 'info'); return; }
+      audio.currentTime = Number(seek.dataset.seek) || 0;
+      audio.play().catch(() => {});
+      return;
+    }
+
+    const btn = e.target.closest('.seg-one');
+    if (!btn) return;
+    const sid = btn.dataset.sid;
+    if (!sid) { toast('This segment has no id', 'error'); return; }
+
+    busy(btn, true);
+    try {
+      const res = await api(SEG_API.summariseOne(sid), { method: 'POST', body: { segment_id: Number(sid) } });
+      const hit = segments.find(x => String(x.id) === String(sid));
+      if (hit) {
+        hit.summary   = res?.summary   ?? hit.summary;
+        hit.decisions = res?.decisions ?? hit.decisions;
+      }
+      segStateRender();
+      toast('Topic summarised', 'ok');
+    } catch (err) {
+      if (err.status !== 401) toast(err.message || 'Could not summarise', 'error', 6000);
+      busy(btn, false);
+    }
+  });
+
+  $('#copyAllSegments').onclick = () => {
+    const text = segments.map((s, i) =>
+      `${i + 1}. ${s.title} [${secs(s.start_time)}-${secs(s.end_time)}]\n` +
+      (s.summary ? `Summary: ${s.summary}\n` : '') +
+      (s.decisions ? `Decisions: ${s.decisions}\n` : '')
+    ).join('\n');
+    copy(text, 'Segments');
+  };
 
   /* ============================================================
      RAG CHAT
