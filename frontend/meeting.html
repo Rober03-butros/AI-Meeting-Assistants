@@ -523,12 +523,12 @@ if (requireAuth()) {
      ============================================================ */
   const SEG_API = {
     status:        id  => `/meetings/${id}/segments/status`,
-    segment:       id  => `/meetings/${id}/segment`,
-    listAll:       id  => `/meetings/${id}/segments`,
-    getOne:        sid => `/segments/${sid}`,
-    summariseOne:  sid => `/segments/${sid}/summarize`,
-    summariseAll:  id  => `/meetings/${id}/segments/summarize`,
-    summarised:    id  => `/meetings/${id}/segments/summarized`,
+    segment:       id  => `/segment/segment/${id}`,
+    listAll:       id  => `/segment/get_all_segments/${id}`,
+    getOne:        sid => `/segment/get_segment/${sid}`,
+    summariseOne:  sid => `/summarize/summarize/${sid}`,
+    summariseAll:  id  => `/summarize/summarize_all/${id}`,
+    summarised:    id  => `/summarize/get_summarized_segments/${id}`,
   };
 
   const segHost   = $('#segments');
