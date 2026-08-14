@@ -1,4 +1,4 @@
-# from app.ai.whisper import load_whisper
+from app.ai.whisper import load_whisper
 from app.ai.embedding_model import load_embedding_model
 from app.ai.reranker_model import load_reranker_model
 
@@ -18,15 +18,11 @@ class ModelManager:
         print("Loading AI models...")
 
 
-        # self.whisper = load_whisper()
+        self.whisper = load_whisper()
         self.embedding_model = load_embedding_model()
         self.reranker_model = load_reranker_model()
 
- 
-        # لاحقا
-        # self.summarizer = load_summary_model()
 
-        # self.rag = load_rag_model()
 
 
         print("All models loaded successfully")
