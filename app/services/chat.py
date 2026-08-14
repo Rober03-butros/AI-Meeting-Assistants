@@ -2,7 +2,7 @@ from app.models.chat_messages import ChatMessage
 from app.models.user import User
 from app.schemas.chatschema import ChatHistoryResponse, ChatMessageResponse
 from app.services.meeting_services import get_meeting_by_id
-from app.services.rag.generation import generate_answer
+from app.ai.gemini import generate_answer
 from app.services.rag.reranker import rerank_chunks
 from app.services.rag.retrieval import search_meeting
 from sqlalchemy.orm import Session

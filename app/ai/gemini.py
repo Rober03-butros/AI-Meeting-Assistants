@@ -37,7 +37,7 @@ def rewrite_query(query: str,history: str):
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite",
         contents=prompt,
     )
 
@@ -74,7 +74,7 @@ def generate_answer(chunks: list[dict],question: str):
     أجب اعتماداً على محتوى الاجتماع فقط.
     """
     response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             contents=prompt,
         )
 
