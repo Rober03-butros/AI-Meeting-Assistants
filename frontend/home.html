@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Home · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css?v=25">
+<link rel="stylesheet" href="assets/css/app.css?v=30">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -114,7 +114,8 @@ window.addEventListener('unhandledrejection', function (e) {
 <script type="module">
 import { $, $$, api, icon, toast, requireAuth, mountAppBar, initials,
          relativeTime, escapeHtml, transcriptionStatus, TSTATUS, hasTranscript,
-         hasSummary, chime, enableChime, notifyDesktop, requestNotifyPermission, Notes } from './assets/js/app.js?v=25';
+         hasSummary, chime, enableChime, notifyDesktop, requestNotifyPermission, Notes,
+         JOB, jobRunning, SEG_API, segmentCounts } from './assets/js/app.js?v=30';
 
 if (requireAuth()) {
   mountAppBar({ active: 'home' });
@@ -193,6 +194,46 @@ if (requireAuth()) {
     }
     return { ...m, ...d };
   };
+
+  /* ---- segment / summary state -------------------------------------------
+     The /meetings list says nothing about segments, so we ask the segment
+     endpoint once per transcribed meeting and cache the answer. Results feed
+     the "Needs your attention" panel.                                      */
+  const segState = new Map();      // id -> { total, summarised }
+  let probing = false;
+
+  async function probeSegments(list) {
+    if (probing) return;
+    const targets = list.filter(m => {
+      const id = String(m.id);
+      if (segState.has(id)) return false;
+      if (jobRunning(JOB.SEGMENT, id) || jobRunning(JOB.SUMMARIZE, id)) return false;
+      const st = transcriptionStatus(m);
+      if (st === TSTATUS.PROCESSING || st === TSTATUS.FAILED) return false;
+      return hasTranscript(m) || st === TSTATUS.DONE || hydrated.get(id) === true;
+    }).slice(0, 8);                                  // cap the fan-out
+
+    if (!targets.length) return;
+    probing = true;
+    try {
+      const results = await Promise.all(targets.map(async m => {
+        try {
+          const res = await api(SEG_API.listAll(m.id), { cache: 'no-store' });
+          return [String(m.id), segmentCounts(res)];
+        } catch (err) {
+          // 404 simply means "never segmented".
+          if (err.status === 404) return [String(m.id), { total: 0, summarised: 0 }];
+          return null;
+        }
+      }));
+      let changed = false;
+      for (const r of results) { if (r) { segState.set(r[0], r[1]); changed = true; } }
+      if (changed && lastList) paint(lastList);
+    } finally { probing = false; }
+  }
+
+  /** Invalidate a meeting's cached segment state (after a job finishes). */
+  function forgetSegState(id) { segState.delete(String(id)); }
 
   async function hydrateUnknowns(list) {
     if (hydrating) return;
@@ -297,7 +338,13 @@ if (requireAuth()) {
       return startedHere(m);                              // no signal -> trust the marker
     };
 
-    const processing = list.filter(isProcessing);
+    /* A meeting is also "busy" while a segment/summarise job runs — those use
+       the same persisted job locks the meeting page writes. */
+    const jobKind = m => jobRunning(JOB.SEGMENT, m.id) ? 'Segmenting'
+                       : jobRunning(JOB.SUMMARIZE, m.id) ? 'Summarising'
+                       : null;
+
+    const processing = list.filter(m => isProcessing(m) || jobKind(m));
     const failed     = list.filter(m => transcriptionStatus(m) === TSTATUS.FAILED);
     /* A meeting counts as transcribed if it has text OR the server says done.
        The /meetings LIST endpoint often omits the (large) transcript body, so
@@ -309,12 +356,24 @@ if (requireAuth()) {
        transcribed meeting would sit here forever. */
     const summariesInUse = list.some(hasSummary);
 
-    const needsWork = list.filter(m => {
+    /* What is the next action for this meeting? null = nothing to do. */
+    const nextAction = m => {
+      const id = String(m.id);
       const st = transcriptionStatus(m);
-      if (isProcessing(m) || st === TSTATUS.FAILED) return false;   // never in both panels
-      if (hydrated.get(String(m.id)) === true) return false;  // detail check said: transcribed
-      if (!isTranscribed(m)) return true;                     // genuinely needs transcribing
-      return summariesInUse && !hasSummary(m);                // needs summarising
+      if (isProcessing(m) || jobKind(m)) return null;          // already busy
+      if (st === TSTATUS.FAILED) return 'retry';
+      if (!isTranscribed(m)) return 'transcribe';
+
+      const seg = segState.get(id);
+      if (!seg) return null;                                   // not probed yet
+      if (seg.total === 0) return 'segment';                   // transcript, no topics
+      if (seg.summarised < seg.total) return 'summarise';      // topics, missing summaries
+      return null;                                             // fully processed
+    };
+
+    const needsWork = list.filter(m => {
+      const a = nextAction(m);
+      return a === 'transcribe' || a === 'segment' || a === 'summarise';
     });
 
     /* Completion detection + chime + notifications now live in app.js
@@ -327,7 +386,7 @@ if (requireAuth()) {
       ? processing.map(m => card(m, {
           cls: 'is-processing',
           meta: `Started ${escapeHtml(relativeTime(m.created_at) || 'recently')}`,
-          trailing: `<span class="badge badge--live"><span class="dot dot--pulse"></span> Transcribing</span>`,
+          trailing: `<span class="badge badge--live"><span class="dot dot--pulse"></span> ${jobKind(m) || 'Transcribing'}</span>`,
         })).join('')
       : `<div class="empty empty--sm">
            <div class="empty__icon">${icon('checkCirc', 24)}</div>
@@ -335,22 +394,26 @@ if (requireAuth()) {
          </div>`;
 
     /* ---- PANEL 2: needs attention ---- */
-    const todo = [...failed, ...needsWork];
+    const todo = [...failed, ...needsWork];   // 'retry' items come from `failed`
     $('#todoCount').textContent = todo.length;
     $('#todoList').innerHTML = todo.length
       ? todo.slice(0, 8).map(m => {
-          const st = transcriptionStatus(m);
-          const needsT = !isTranscribed(m);
+          const seg = segState.get(String(m.id));
+          const a = transcriptionStatus(m) === TSTATUS.FAILED ? 'retry' : nextAction(m);
           let tag, meta;
-          if (st === TSTATUS.FAILED) {
+          if (a === 'retry') {
             tag = `<span class="badge" style="color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent)">${icon('alert', 13)} Retry</span>`;
             meta = 'Last attempt failed';
-          } else if (needsT) {
-            tag = `<span class="badge badge--warn">${icon('sparkle', 13)} Transcribe</span>`;
+          } else if (a === 'transcribe') {
+            tag = `<span class="badge badge--warn">${icon('mic', 13)} Transcribe</span>`;
             meta = 'No transcript yet';
+          } else if (a === 'segment') {
+            tag = `<span class="badge badge--warn">${icon('list', 13)} Segment</span>`;
+            meta = 'Transcript ready — not split into topics';
           } else {
-            tag = `<span class="badge badge--warn">${icon('doc', 13)} Summarise</span>`;
-            meta = 'Transcript ready, no summary';
+            tag = `<span class="badge badge--warn">${icon('sparkle', 13)} Summarise</span>`;
+            meta = seg ? `${seg.summarised} of ${seg.total} topics summarised`
+                       : 'Topics not summarised';
           }
           return card(m, { meta: escapeHtml(meta), trailing: tag });
         }).join('')
@@ -364,13 +427,16 @@ if (requireAuth()) {
   /* ---------- data ----------
      The site-wide watcher in app.js already polls /meetings on every page.
      We reuse its result instead of running a second, competing poll loop. */
+  let lastList = null;
   function paint(list) {
+    lastList = list;
     if (firstRun && list.length) {
       console.info('[home] /meetings row keys:', Object.keys(list[0]).join(', '));
     }
     try {
       renderAll(list);
       hydrateUnknowns(list);
+      probeSegments(list);
     } catch (renderErr) {
       console.error('renderAll failed:', renderErr);
       $('#todoList').innerHTML = `<div class="empty empty--sm">
@@ -381,14 +447,25 @@ if (requireAuth()) {
     }
   }
 
+  window.addEventListener('jobs:changed', e => {
+    // A finished segment/summarise job invalidates the cached counts.
+    if (e.detail && e.detail.running === false) forgetSegState(e.detail.id);
+    if (lastList) { paint(lastList); probeSegments(lastList); }
+  });
   window.addEventListener('meetings:refreshed', e => {
     // A meeting that just finished must drop its stale caches, otherwise it
     // stays in "Needs your attention" until a reload.
-    for (const id of (e.detail.finished || [])) {
+    const finished = e.detail.finished || [];
+    for (const id of finished) {
       hydrated.delete(String(id));
       detail.delete(String(id));
+      forgetSegState(id);          // newly transcribed -> re-probe for segments
     }
-    paint(e.detail.list || []);
+    const list = e.detail.list || [];
+    paint(list);
+    // Immediately find out whether the freshly-transcribed meeting needs
+    // segmenting, so it appears in "Needs your attention" without a reload.
+    if (finished.length) probeSegments(list);
   });
 
   // Initial paint (the watcher's first tick lands ~1.5s later).

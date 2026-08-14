@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Meeting · AI Meeting Assistant</title>
-<link rel="stylesheet" href="assets/css/app.css?v=25">
+<link rel="stylesheet" href="assets/css/app.css?v=30">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎙️</text></svg>">
 </head>
 <body>
@@ -131,7 +131,8 @@
 <script type="module">
 import { $, $$, api, icon, toast, busy, requireAuth, mountAppBar, confirmDialog,
          formatDate, relativeTime, escapeHtml, initials, Tokens, CONFIG,
-         trackTranscription, notifyTranscription } from './assets/js/app.js?v=25';
+         trackTranscription, notifyTranscription,
+         JOB, jobStart, jobRunning, jobEnd, notifyJob, SEG_API } from './assets/js/app.js?v=30';
 
 if (requireAuth()) {
   mountAppBar({ active: 'meetings' });
@@ -490,7 +491,7 @@ if (requireAuth()) {
       if (initial === STATE.PROCESSING) startPolling();
 
       // Segments only make sense once a transcript exists.
-      if (initial === STATE.DONE) loadSegments();
+      if (initial === STATE.DONE) { loadSegments(); resumeSegJobs(); }
       else segBar.hidden = true;
 
       $('#copySummary').disabled = !summary;
@@ -521,16 +522,6 @@ if (requireAuth()) {
      Endpoint paths are gathered here — if any differ on your
      backend, change them in this one block only.
      ============================================================ */
-  const SEG_API = {
-    status:        id  => `/meetings/${id}/segments/status`,
-    segment:       id  => `/segment/segment/${id}`,
-    listAll:       id  => `/segment/get_all_segments/${id}`,
-    getOne:        sid => `/segment/get_segment/${sid}`,
-    summariseOne:  sid => `/summarize/summarize/${sid}`,
-    summariseAll:  id  => `/summarize/summarize_all/${id}`,
-    summarised:    id  => `/summarize/get_summarized_segments/${id}`,
-  };
-
   const segHost   = $('#segments');
   const segBar    = $('#segBar');
   const segmentBtn     = $('#segmentBtn');
@@ -572,26 +563,51 @@ if (requireAuth()) {
   }
 
   function segStateRender() {
+    if (!segBar || !document.getElementById('segments')) return;   // page torn down
     const total = segments.length;
     const done  = segments.filter(s => (s.summary || '').trim()).length;
 
+    // Persisted locks: survive refresh, navigation and other tabs.
+    const segging = jobRunning(JOB.SEGMENT, meetingId);
+    const summing = jobRunning(JOB.SUMMARIZE, meetingId);
+    const anyJob  = segging || summing;
+
     segBar.hidden = false;
     $('#copyAllSegments').hidden = !total;
+    segBar.classList.toggle('is-running', anyJob);
 
-    if (!total) {
+    // --- header text ---
+    if (segging) {
+      $('#segTitle').textContent = 'Segmenting…';
+      $('#segHint').textContent  = 'Splitting the transcript into topics. You can leave this page.';
+    } else if (summing) {
+      $('#segTitle').textContent = 'Summarising…';
+      $('#segHint').textContent  = 'Summarising every topic — this can take a while.';
+    } else if (!total) {
       $('#segTitle').textContent = 'Not segmented yet';
       $('#segHint').textContent  = 'Split the transcript into topics, then summarise each one.';
-      segmentBtn.hidden = false;
-      summariseAllBtn.hidden = true;
     } else {
       $('#segTitle').textContent = `${total} topic${total === 1 ? '' : 's'}`;
       $('#segHint').textContent  = done === total
         ? 'All topics summarised.'
         : `${done} of ${total} summarised.`;
-      segmentBtn.hidden = true;
-      summariseAllBtn.hidden = done === total;
     }
 
+    // --- buttons: locked while ANY job runs ---
+    segmentBtn.hidden = total > 0 && !segging;
+    busy(segmentBtn, segging);
+    segmentBtn.disabled = anyJob || total > 0;
+
+    summariseAllBtn.hidden = (!total && !summing) || (total > 0 && done === total && !summing);
+    busy(summariseAllBtn, summing);
+    summariseAllBtn.disabled = anyJob;
+
+    // --- body ---
+    if (segging && !total) {
+      segHost.innerHTML = `<div class="skeleton skeleton--card"></div>
+                           <div class="skeleton skeleton--card"></div>`;
+      return;
+    }
     if (!total) { segHost.innerHTML = ''; return; }
 
     segHost.innerHTML = segments.map((s, i) => {
@@ -605,6 +621,7 @@ if (requireAuth()) {
           <span class="segment__title" dir="${dir}">${escapeHtml(s.title)}</span>
           ${time}
           ${hasSum ? `<span class="badge badge--brand">${icon('check', 12)} Summarised</span>`
+                   : summing ? `<span class="badge badge--live"><span class="dot dot--pulse"></span> Working</span>`
                    : `<span class="badge badge--warn">Pending</span>`}
           <span class="segment__chev">${icon('chevron', 16)}</span>
         </summary>
@@ -614,7 +631,7 @@ if (requireAuth()) {
           ${(s.decisions || '').trim() ? `<div class="segment__block segment__block--dec">
                         <span class="segment__label">${icon('check', 12)} Decisions</span>
                         <p dir="${dir}">${escapeHtml(s.decisions)}</p></div>` : ''}
-          ${!hasSum ? `<button class="btn btn--sm btn--primary seg-one" type="button"
+          ${!hasSum && !anyJob ? `<button class="btn btn--sm btn--primary seg-one" type="button"
                         data-sid="${s.id ?? ''}">${icon('sparkle', 15)} Summarise this topic</button>` : ''}
           ${(s.segment || '').trim() ? `<details class="segment__raw"><summary>Show transcript</summary>
                         <p class="prose" dir="${dir}">${escapeHtml(s.segment)}</p></details>` : ''}
@@ -623,7 +640,69 @@ if (requireAuth()) {
     }).join('');
   }
 
-  async function loadSegments() {
+  /* If a segment/summarise job was still running when the page was left or
+     refreshed, the lock is still in localStorage. Restore the running UI and
+     poll until the server shows the work is finished, then notify. */
+  let segPoll = null;
+  window.addEventListener('pagehide', () => clearTimeout(segPoll));
+  function resumeSegJobs() {
+    if (!jobRunning(JOB.SEGMENT, meetingId) && !jobRunning(JOB.SUMMARIZE, meetingId)) return;
+
+    segStateRender();
+    clearTimeout(segPoll);
+    let delay = 3000;
+    const startedAt = Date.now();
+    const CEILING = 30 * 60 * 1000;         // never poll forever
+
+    const tick = async () => {
+      const segging = jobRunning(JOB.SEGMENT, meetingId);
+      const summing = jobRunning(JOB.SUMMARIZE, meetingId);
+      if (!segging && !summing) return;      // already finished elsewhere
+
+      const title = (meeting && meeting.title) || 'Meeting';
+
+      // Give up rather than leave the UI locked forever.
+      if (Date.now() - startedAt > CEILING) {
+        if (segging) notifyJob(JOB.SEGMENT, meetingId, title, false);
+        if (summing) notifyJob(JOB.SUMMARIZE, meetingId, title, false);
+        segStateRender();
+        return;
+      }
+
+      try {
+        await loadSegments({ silent: true });
+        const total = segments.length;
+        const doneNow = segments.filter(x => (x.summary || '').trim()).length;
+
+        /* ABSOLUTE completion tests — not deltas.
+           loadSegments() already ran on page load, so a "did it change?"
+           comparison is false on the first tick and the lock would never
+           release. Ask instead: is the work actually done now? */
+        if (segging && total > 0) {
+          notifyJob(JOB.SEGMENT, meetingId, title, true);
+        }
+        if (summing && total > 0 && doneNow === total) {
+          notifyJob(JOB.SUMMARIZE, meetingId, title, true);
+        }
+      } catch { /* transient error: keep waiting */ }
+
+      segStateRender();
+      if (jobRunning(JOB.SEGMENT, meetingId) || jobRunning(JOB.SUMMARIZE, meetingId)) {
+        delay = Math.min(delay * 1.3, 15000);
+        segPoll = setTimeout(tick, delay);
+      }
+    };
+    segPoll = setTimeout(tick, 1200);        // check quickly on resume
+  }
+
+  /* Safety net: start recovery immediately on page load, independent of the
+     meeting-detail fetch. If that fetch throws, resumeSegJobs() would never be
+     reached from there and a leftover lock would keep the buttons disabled. */
+  if (jobRunning(JOB.SEGMENT, meetingId) || jobRunning(JOB.SUMMARIZE, meetingId)) {
+    loadSegments().then(resumeSegJobs).catch(resumeSegJobs);
+  }
+
+  async function loadSegments(opts = {}) {
     try {
       const res = await api(SEG_API.listAll(meetingId), { cache: 'no-store' });
       segments = readSegments(res);
@@ -633,40 +712,50 @@ if (requireAuth()) {
       }
     } catch (err) {
       if (err.status === 401) return;
-      segments = [];                                  // 404 = not segmented yet
+      if (!opts.silent) segments = [];                // 404 = not segmented yet
     }
-    segStateRender();
+    if (!opts.silent) segStateRender();
   }
 
   segmentBtn.onclick = async () => {
-    if (segBusy) return;
-    segBusy = true; busy(segmentBtn, true);
-    $('#segTitle').textContent = 'Segmenting…';
-    $('#segHint').textContent  = 'Splitting the transcript into topics.';
+    if (segBusy || jobRunning(JOB.SEGMENT, meetingId)) return;
+    if (!jobStart(JOB.SEGMENT, meetingId)) return;      // persisted lock
+    segBusy = true;
+    segStateRender();                                    // paint the running state
     try {
       const res = await api(SEG_API.segment(meetingId), { method: 'POST', body: { meeting_id: Number(meetingId) } });
       segments = readSegments(res);
-      if (!segments.length) await loadSegments();     // response may omit the data
-      else segStateRender();
-      toast(`Created ${segments.length} topic${segments.length === 1 ? '' : 's'}`, 'ok');
+      if (!segments.length) await loadSegments();        // response may omit the data
+      notifyJob(JOB.SEGMENT, meetingId, (meeting && meeting.title) || 'Meeting', true);
     } catch (err) {
-      if (err.status !== 401) toast(err.message || 'Segmentation failed', 'error', 6000);
+      if (err.status === 401) { jobEnd(JOB.SEGMENT, meetingId); return; }
+      notifyJob(JOB.SEGMENT, meetingId, (meeting && meeting.title) || 'Meeting', false);
+    } finally {
+      // Guarantee the lock is released even if a path above missed it,
+      // otherwise the button stays disabled forever.
+      jobEnd(JOB.SEGMENT, meetingId);
+      segBusy = false;
       segStateRender();
-    } finally { busy(segmentBtn, false); segBusy = false; }
+    }
   };
 
   summariseAllBtn.onclick = async () => {
-    if (segBusy) return;
-    segBusy = true; busy(summariseAllBtn, true);
-    $('#segHint').textContent = 'Summarising every topic — this can take a while.';
+    if (segBusy || jobRunning(JOB.SUMMARIZE, meetingId)) return;
+    if (!jobStart(JOB.SUMMARIZE, meetingId)) return;
+    segBusy = true;
+    segStateRender();
     try {
       const res = await api(SEG_API.summariseAll(meetingId), { method: 'POST', body: { meeting_id: Number(meetingId) } });
       if (!applySummaries(res)) await loadSegments();
-      else segStateRender();
-      toast('All topics summarised', 'ok');
+      notifyJob(JOB.SUMMARIZE, meetingId, (meeting && meeting.title) || 'Meeting', true);
     } catch (err) {
-      if (err.status !== 401) toast(err.message || 'Summarisation failed', 'error', 6000);
-    } finally { busy(summariseAllBtn, false); segBusy = false; }
+      if (err.status === 401) { jobEnd(JOB.SUMMARIZE, meetingId); return; }
+      notifyJob(JOB.SUMMARIZE, meetingId, (meeting && meeting.title) || 'Meeting', false);
+    } finally {
+      jobEnd(JOB.SUMMARIZE, meetingId);
+      segBusy = false;
+      segStateRender();
+    }
   };
 
   /* Per-segment summarise + seek, delegated. */

@@ -1019,6 +1019,22 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   .seg-bar .btn { width: 100%; }
 }
 
+.seg-bar.is-running {
+  border-style: solid;
+  position: relative;
+  overflow: hidden;
+}
+.seg-bar.is-running::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent,
+              color-mix(in srgb, var(--brand) 14%, transparent), transparent);
+  animation: sweep 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.seg-bar .btn:disabled { opacity: .55; cursor: not-allowed; }
+.seg-bar.is-running .btn:disabled { opacity: .9; cursor: progress; }
+
 .segments { display: grid; gap: 10px; margin-top: 16px; }
 
 .segment {

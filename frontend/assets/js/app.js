@@ -530,23 +530,23 @@ export const Notes = {
     list.unshift({ id: id || `n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
                    title, body, kind, href, at: Date.now(), read: false });
     try { localStorage.setItem(NOTES_KEY, JSON.stringify(list.slice(0, NOTES_MAX))); } catch {}
-    window.dispatchEvent(new CustomEvent('notes:changed'));
+    try { window.dispatchEvent(new CustomEvent('notes:changed')); } catch {}
     return true;
   },
   markAllRead() {
     const list = this.all().map(n => ({ ...n, read: true }));
     try { localStorage.setItem(NOTES_KEY, JSON.stringify(list)); } catch {}
-    window.dispatchEvent(new CustomEvent('notes:changed'));
+    try { window.dispatchEvent(new CustomEvent('notes:changed')); } catch {}
   },
   clear() {
     try { localStorage.removeItem(NOTES_KEY); } catch {}
-    window.dispatchEvent(new CustomEvent('notes:changed'));
+    try { window.dispatchEvent(new CustomEvent('notes:changed')); } catch {}
   },
 };
 
 // Sync across tabs.
 window.addEventListener('storage', e => {
-  if (e.key === NOTES_KEY) window.dispatchEvent(new CustomEvent('notes:changed'));
+  if (e.key === NOTES_KEY) try { window.dispatchEvent(new CustomEvent('notes:changed')); } catch {}
 });
 
 /** Bell + dropdown, mounted into the app bar. */
@@ -697,6 +697,134 @@ function runStamp(id) {
   try { return localStorage.getItem(`transcribing:${id}`) || 'x'; } catch { return 'x'; }
 }
 
+/* ============================================================
+   SEGMENT / SUMMARY ENDPOINTS
+   Single source of truth — meeting.html and home.html both use these,
+   so a path change only has to happen once.
+   ============================================================ */
+export const SEG_API = {
+  status:        id  => `/meetings/${id}/segments/status`,
+  segment:       id  => `/segment/segment/${id}`,
+  listAll:       id  => `/segment/get_all_segments/${id}`,
+  getOne:        sid => `/segment/get_segment/${sid}`,
+  summariseOne:  sid => `/summarize/summarize/${sid}`,
+  summariseAll:  id  => `/summarize/summarize_all/${id}`,
+  summarised:    id  => `/summarize/get_summarized_segments/${id}`,
+};
+
+/** Normalise any segments payload -> { total, summarised }. */
+export function segmentCounts(res) {
+  const arr = Array.isArray(res) ? res
+            : Array.isArray(res?.segments) ? res.segments
+            : Array.isArray(res?.segments_data) ? res.segments_data
+            : Array.isArray(res?.summarized_segments) ? res.summarized_segments
+            : [];
+  const total = Number(res?.segments_count ?? res?.summarized_count ?? arr.length) || arr.length;
+  const summarised = arr.filter(x => String(x?.summary || '').trim()).length;
+  return { total, summarised, list: arr };
+}
+
+/* ============================================================
+   GENERIC JOB LOCKS  (transcribe / segment / summarize)
+   ------------------------------------------------------------
+   One mechanism for every long-running job so they cannot drift
+   apart. State lives in localStorage keyed `job:<kind>:<id>` and
+   therefore survives a page refresh, navigation and new tabs.
+   ============================================================ */
+export const JOB = { TRANSCRIBE: 'transcribe', SEGMENT: 'segment', SUMMARIZE: 'summarize' };
+const JOB_TTL = 60 * 60 * 1000;                 // stale lock auto-expires
+
+const jobKey = (kind, id) => `job:${kind}:${id}`;
+
+/** Mark a job as running. Returns false if one is already in flight. */
+export function jobStart(kind, id) {
+  const k = jobKey(kind, id);
+  if (jobRunning(kind, id)) return false;
+  try { localStorage.setItem(k, String(Date.now())); } catch {}
+  emitJobsChanged(kind, id, true);
+  return true;
+}
+
+/* Notifying listeners must NEVER be able to abort a lock change: if the
+   dispatch throws, the lock would stay in localStorage and the buttons would
+   remain disabled forever. */
+function emitJobsChanged(kind, id, running) {
+  try {
+    window.dispatchEvent(new CustomEvent('jobs:changed', { detail: { kind, id, running } }));
+  } catch { /* ignore */ }
+}
+
+/** Is this job currently running (per persisted state)? */
+export function jobRunning(kind, id) {
+  try {
+    const t = Number(localStorage.getItem(jobKey(kind, id)));
+    if (!t) return false;
+    if (Date.now() - t > JOB_TTL) { localStorage.removeItem(jobKey(kind, id)); return false; }
+    return true;
+  } catch { return false; }
+}
+
+/** Timestamp of the current run — used to key notifications per-run. */
+export function jobStamp(kind, id) {
+  try { return localStorage.getItem(jobKey(kind, id)) || 'x'; } catch { return 'x'; }
+}
+
+export function jobEnd(kind, id) {
+  try { localStorage.removeItem(jobKey(kind, id)); } catch {}   // release FIRST
+  emitJobsChanged(kind, id, false);
+}
+
+/** Every meeting id with a live job of this kind (for the home panel). */
+export function jobsOfKind(kind) {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(`job:${kind}:`)) continue;
+      const id = k.slice(`job:${kind}:`.length);
+      if (jobRunning(kind, id)) out.push(id);
+    }
+  } catch {}
+  return out;
+}
+
+const JOB_LABEL = {
+  [JOB.SEGMENT]:   { done: 'Segmentation complete', fail: 'Segmentation failed',
+                     okBody: 'has been split into topics.', failBody: 'could not be segmented.' },
+  [JOB.SUMMARIZE]: { done: 'Summary ready',         fail: 'Summarisation failed',
+                     okBody: 'has been summarised.',  failBody: 'could not be summarised.' },
+};
+
+/**
+ * Finish a segment/summarize job: clear the lock, then notify exactly once
+ * (bell + sound + toast), keyed by run so a repeat run notifies again.
+ */
+export function notifyJob(kind, id, title, ok = true) {
+  // Read the stamp BEFORE releasing the lock; once released jobStamp() falls
+  // back to 'x' and a second call would look like a different run and re-fire.
+  const stamp = jobStamp(kind, id);
+  if (stamp === 'x') return false;          // no live run -> nothing to announce
+  const L = JOB_LABEL[kind];
+  if (!L) { jobEnd(kind, id); return false; }
+  const name = title || 'Meeting';
+
+  const added = Notes.add({
+    id: `${kind}_${ok ? 'done' : 'fail'}_${id}_${stamp}`,
+    kind: ok ? 'ok' : 'error',
+    href: `meeting.html?id=${encodeURIComponent(id)}`,
+    title: ok ? L.done : L.fail,
+    body: `\u201C${name}\u201D ${ok ? L.okBody : L.failBody}`,
+  });
+
+  jobEnd(kind, id);
+  if (!added) return false;
+
+  chime(ok ? 'success' : 'error');
+  toast(`\u201C${name}\u201D ${ok ? L.okBody : L.failBody}`, ok ? 'ok' : 'error', ok ? 6000 : 8000);
+  notifyDesktop(ok ? L.done : L.fail, name);
+  return true;
+}
+
 /**
  * Emit a transcription notification (bell + sound + toast + desktop).
  *
@@ -816,9 +944,11 @@ async function watchTick() {
     }
 
     mergeSeen(seen);
-    window.dispatchEvent(new CustomEvent('meetings:refreshed', {
-      detail: { list, finished: [...terminalThisTick] },
-    }));
+    try {
+      window.dispatchEvent(new CustomEvent('meetings:refreshed', {
+        detail: { list, finished: [...terminalThisTick] },
+      }));
+    } catch {}
     schedule(anyRunning ? 6000 : 25000);
   } catch (err) {
     if (err.status === 401) return;                    // logged out: stop quietly
@@ -880,7 +1010,7 @@ export function startTranscriptionWatcher() {
                   || k === WATCH_LEASE || k === NOTES_KEY)
         .forEach(k => localStorage.removeItem(k));
     } catch {}
-    window.dispatchEvent(new CustomEvent('notes:changed'));
+    try { window.dispatchEvent(new CustomEvent('notes:changed')); } catch {}
     schedule(500);
     return 'watcher state cleared — press Transcribe again';
   };

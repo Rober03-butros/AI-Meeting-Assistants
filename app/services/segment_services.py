@@ -109,8 +109,8 @@ async def segment_function(meeting_id: int, db: Session):
         "temperature": 0,
         "num_predict": num_predict,
         "num_ctx": num_ctx,
-        "num_gpu": 999,
-        "num_thread": 8
+        "num_gpu": 1,
+        "num_thread": 4
     }
     }
 
@@ -222,8 +222,8 @@ async def summarize_segment(segment_id: int, db: Session):
             "temperature": 0,
             "num_predict": num_predict,
             "num_ctx": num_ctx,
-            "num_gpu": 999,
-            "num_thread": 8
+            "num_gpu": 1,
+            "num_thread": 4
         }
     }
 
