@@ -99,7 +99,6 @@ if (requireAuth()) {
   $('#meetBtn').onclick = () =>
     window.open('https://meet.google.com', '_blank', 'noopener,width=1200,height=800');
 
-  /* ---------- start ---------- */
   startBtn.onclick = async () => {
     if (!$('#title').value.trim()) {
       $('#titleErr').textContent = 'Give the meeting a name before recording.';
@@ -138,7 +137,6 @@ if (requireAuth()) {
       if (screen.getAudioTracks().length) audioCtx.createMediaStreamSource(screen).connect(dest);
       if (mic?.getAudioTracks().length)   audioCtx.createMediaStreamSource(mic).connect(dest);
 
-      /* level meter */
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 512;
       audioCtx.createMediaStreamSource(dest.stream).connect(analyser);
@@ -160,7 +158,6 @@ if (requireAuth()) {
       recorder.onstop = finish;
       recorder.start(1000);
 
-      // user pressed the browser's own "Stop sharing"
       screen.getVideoTracks()[0]?.addEventListener('ended', () => {
         if (recorder?.state === 'recording') stopBtn.click();
       });
@@ -187,7 +184,6 @@ if (requireAuth()) {
 
   const warn = e => { e.preventDefault(); e.returnValue = ''; };
 
-  /* ---------- stop ---------- */
   stopBtn.onclick = () => {
     if (recorder?.state !== 'inactive') recorder.stop();
     stopBtn.disabled = true;

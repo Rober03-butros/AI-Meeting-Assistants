@@ -1,7 +1,3 @@
-/* ============================================================
-   AI Meeting Assistant — Design System
-   ============================================================ */
-
 :root {
   --bg:            #070b14;
   --bg-2:          #0b1220;
@@ -38,7 +34,8 @@
   --ease: cubic-bezier(.22, .8, .3, 1);
 }
 
-/* ---------- Light theme ---------- */
+
+
 [data-theme="light"] {
   --bg:            #f4f7fb;
   --bg-2:          #ffffff;
@@ -58,7 +55,8 @@
   --shadow-lg: 0 24px 56px rgba(16, 32, 60, .16);
 }
 
-/* ---------- Reset ---------- */
+
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
@@ -76,7 +74,8 @@ body {
   overflow-x: hidden;
 }
 
-/* Ambient background glow */
+
+
 body::before {
   content: "";
   position: fixed;
@@ -114,7 +113,8 @@ a:hover { color: var(--text); }
 
 ::selection { background: rgba(0, 199, 183, .32); color: #fff; }
 
-/* Scrollbar */
+
+
 * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb {
@@ -124,15 +124,12 @@ a:hover { color: var(--text); }
   background-clip: content-box;
 }
 
-/* ============================================================
-   Layout
-   ============================================================ */
+
 .container {
   width: min(1120px, 100% - 2 * var(--space));
   margin-inline: auto;
 }
-/* Modifier is used standalone (recorder/login/register/verify), so it must
-   repeat the centring — otherwise it renders flush-left with no side gutter. */
+
 .container--narrow {
   width: min(760px, 100% - 2 * var(--space));
   margin-inline: auto;
@@ -156,9 +153,9 @@ a:hover { color: var(--text); }
 }
 .page { padding: calc(var(--header-h) + 28px) 0 72px; }
 
-/* ============================================================
-   App bar
-   ============================================================ */
+
+
+
 .appbar {
   position: fixed;
   inset: 0 0 auto 0;
@@ -177,7 +174,7 @@ a:hover { color: var(--text); }
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;          /* allow children to shrink instead of overflowing */
+  min-width: 0;         
 }
 
 .brand {
@@ -210,18 +207,18 @@ a:hover { color: var(--text); }
   align-items: center;
   gap: 6px;
   margin-left: auto;
-  flex: 0 1 auto;          /* may shrink; its icon buttons are pinned below */
+  flex: 0 1 auto; 
   min-width: 0;
 }
-/* The bell, theme and sign-out buttons must always stay visible, even when
-   the nav links are cramped on a narrow viewport. */
+
+
 .appbar__nav > .notif,
 .appbar__nav > #themeBtn,
 .appbar__nav > #logoutBtn { flex: 0 0 auto; }
 
-/* Nav LINKS are the only things allowed to shrink/scroll away. Without this,
-   a wide page (e.g. meetings) pushes the trailing icon buttons — the bell
-   included — past the right edge where they're invisible. */
+
+
+
 .appbar__nav > a.btn {
   flex: 0 1 auto;
   min-width: 0;
@@ -229,14 +226,14 @@ a:hover { color: var(--text); }
   text-overflow: ellipsis;
 }
 @media (max-width: 900px) {
-  /* Drop link labels early so the icon buttons always fit. */
+
   .appbar__nav > a.btn .nav-label { display: none; }
 }
 .appbar .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 
-/* ============================================================
-   Buttons
-   ============================================================ */
+
+
+
 .btn {
   --btn-bg: var(--surface-2);
   --btn-fg: var(--text);
@@ -296,7 +293,7 @@ a:hover { color: var(--text); }
 }
 .btn--icon svg { width: 18px; height: 18px; }
 
-/* Loading state */
+
 .btn.is-loading { color: transparent !important; pointer-events: none; position: relative; }
 .btn.is-loading::after {
   content: "";
@@ -312,9 +309,7 @@ a:hover { color: var(--text); }
 .btn:not(.btn--primary).is-loading::after { color: var(--text); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ============================================================
-   Cards & surfaces
-   ============================================================ */
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -358,9 +353,9 @@ a:hover { color: var(--text); }
 .faint { color: var(--text-faint); font-size: .875rem; }
 .mono  { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
 
-/* ============================================================
-   Forms
-   ============================================================ */
+
+
+
 .field { display: grid; gap: 7px; }
 .label {
   font-size: .82rem;
@@ -392,11 +387,9 @@ a:hover { color: var(--text); }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
-/* ---- Select ----
-   A native <select> paints its own arrow inside the padding box, so reusing
-   .input leaves it flush to the border and crowding the label. We remove the
-   native arrow entirely and draw our own with generous breathing room.
-   !important is used because a cached older stylesheet must never win.     */
+
+
+
 select.input,
 .select {
   appearance: none !important;
@@ -423,7 +416,7 @@ select.input:focus,
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300c7b7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
 }
 select.input::-ms-expand { display: none; }
-/* Native dropdown list: follow the theme instead of white-on-white. */
+
 select.input option {
   background: var(--bg-2);
   color: var(--text);
@@ -456,7 +449,7 @@ select.input option {
   min-height: 1em;
 }
 
-/* OTP inputs */
+
 .otp {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
@@ -485,7 +478,7 @@ select.input option {
 }
 .otp input.filled { border-color: var(--brand); }
 
-/* Password strength */
+
 .strength { display: grid; gap: 6px; }
 .strength__bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
 .strength__bars i {
@@ -499,9 +492,9 @@ select.input option {
 .strength[data-score="3"] .strength__bars i:nth-child(-n+3) { background: #7bd66a; }
 .strength[data-score="4"] .strength__bars i { background: var(--ok); }
 
-/* ============================================================
-   Misc components
-   ============================================================ */
+
+
+
 .divider {
   display: flex;
   align-items: center;
@@ -565,7 +558,7 @@ select.input option {
 }
 .avatar--lg { width: 56px; height: 56px; font-size: 1.15rem; }
 
-/* Empty / error states */
+
 .empty {
   text-align: center;
   padding: clamp(32px, 8vw, 64px) 20px;
@@ -584,7 +577,7 @@ select.input option {
 }
 .empty__icon svg { width: 28px; height: 28px; }
 
-/* Skeletons */
+
 .skeleton {
   border-radius: var(--r-sm);
   background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 37%, var(--surface) 63%);
@@ -596,9 +589,9 @@ select.input option {
 .skeleton--title { height: 22px; width: 55%; margin-bottom: 14px; }
 .skeleton--card { height: 92px; border-radius: var(--r); }
 
-/* ============================================================
-   Toasts
-   ============================================================ */
+
+
+
 .toasts {
   position: fixed;
   z-index: 999;
@@ -633,9 +626,9 @@ select.input option {
 @keyframes toast-in  { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 @keyframes toast-out { to   { opacity: 0; transform: translateY(6px) scale(.97); } }
 
-/* ============================================================
-   Modal / confirm dialog
-   ============================================================ */
+
+
+
 dialog.modal {
   border: 1px solid var(--border-strong);
   background: var(--bg-2);
@@ -652,11 +645,11 @@ dialog.modal::backdrop {
 dialog.modal[open] { animation: modal-in .22s var(--ease); }
 @keyframes modal-in { from { opacity: 0; transform: translateY(14px) scale(.97); } }
 
-/* ============================================================
-   Page-specific
-   ============================================================ */
 
-/* Home hero */
+
+
+
+
 .hero { display: grid; gap: 10px; margin-bottom: 30px; }
 .hero__eyebrow { color: var(--brand); font-weight: 600; font-size: .9rem; }
 .hero h1 .accent {
@@ -711,7 +704,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .tile h3 { font-size: 1.08rem; }
 .tile p { color: var(--text-dim); font-size: .9rem; }
 
-/* Control-panel: two equal columns, stacking on narrow screens */
+
 .panels {
   display: grid;
   gap: 16px;
@@ -725,7 +718,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .empty--sm .empty__icon { width: 46px; height: 46px; border-radius: 15px; }
 .empty--sm .empty__icon svg { width: 22px; height: 22px; }
 
-/* ---- Notification bell + dropdown ---- */
+
 .notif { position: relative; display: inline-flex; }
 .notif__dot {
   position: absolute;
@@ -782,7 +775,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .notif__body  { display: block; color: var(--text-dim); font-size: .84rem; margin-top: 2px; }
 .notif__time  { display: block; color: var(--text-faint); font-size: .75rem; margin-top: 3px; }
 
-/* Activity-centre accents */
+
 .tile__icon--live { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .tile__icon--ok   { background: color-mix(in srgb, var(--ok) 15%, transparent);     color: var(--ok); }
 .tile__icon--warn { background: color-mix(in srgb, var(--warn) 15%, transparent);   color: var(--warn); }
@@ -793,7 +786,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   color: var(--warn);
 }
 
-/* A meeting currently being processed: animated left edge */
+
 .meeting-card.is-processing {
   position: relative;
   overflow: hidden;
@@ -820,7 +813,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   color: var(--danger);
 }
 
-/* A meeting that just completed: brief celebratory flash */
+
 .meeting-card.is-fresh {
   border-color: color-mix(in srgb, var(--ok) 45%, transparent);
   animation: pop-in .5s var(--ease);
@@ -843,7 +836,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .stat__num { font-size: 1.7rem; font-weight: 800; letter-spacing: -.03em; }
 .stat__label { font-size: .8rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
 
-/* Meeting list */
+
 .meeting-list { display: grid; gap: 12px; }
 .meeting-card {
   display: flex;
@@ -891,7 +884,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 }
 .search-bar .input { padding-left: 44px; }
 
-/* Recorder */
+
 .recorder-stage {
   display: grid;
   place-items: center;
@@ -966,7 +959,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 }
 .controls .btn { flex: 1 1 160px; max-width: 240px; }
 
-/* Meeting detail */
+
 .detail-grid {
   display: grid;
   gap: 18px;
@@ -1003,9 +996,8 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .tab:hover { color: var(--text); }
 .tab[aria-selected="true"] { background: var(--bg-2); color: var(--text); box-shadow: var(--shadow); }
 
-/* ============================================================
-   Segments + summarisation
-   ============================================================ */
+
+
 .seg-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   margin-bottom: 16px; padding: 14px 16px;
@@ -1101,9 +1093,9 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 .segment__raw > summary:hover { color: var(--brand); }
 .segment__raw .prose { margin-top: 8px; max-height: 220px; font-size: .9rem; }
 
-/* ============================================================
-   RAG chat
-   ============================================================ */
+
+
+
 .chat { display: flex; flex-direction: column; gap: 12px; }
 
 .chat__log {
@@ -1152,10 +1144,10 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   border-color: color-mix(in srgb, var(--danger) 34%, transparent);
   color: var(--danger);
 }
-/* RTL bubbles keep their tail on the correct side. */
+
 .chat__bubble[dir="rtl"] { text-align: right; }
 
-/* Typing indicator */
+
 .chat__typing { display: inline-flex; gap: 5px; padding: 3px 0; }
 .chat__typing i {
   width: 7px; height: 7px; border-radius: 50%;
@@ -1169,7 +1161,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   30%           { opacity: 1;  transform: translateY(-4px); }
 }
 
-/* Sources */
+
 .chat__sources {
   display: flex;
   flex-wrap: wrap;
@@ -1178,11 +1170,9 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px dashed var(--border);
-  /* The bubble is pre-wrap for message text; the chip row must not inherit it
-     or the markup's own whitespace becomes visible padding. */
   white-space: normal;
 }
-/* In an RTL bubble the row flows right-to-left, keeping the label leading. */
+
 .chat__bubble[dir="rtl"] .chat__sources { flex-direction: row-reverse; }
 .chat__bubble[dir="rtl"] .chat__sources-label { margin-right: 0; margin-left: 2px; }
 
@@ -1223,11 +1213,11 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
   font-size: .74rem;
   letter-spacing: -.01em;
   padding: 5px 10px;
-  direction: ltr;            /* timecodes are always LTR, even in RTL bubbles */
+  direction: ltr;
   unicode-bidi: isolate;
 }
 
-/* Composer */
+
 .chat__composer { display: flex; gap: 10px; align-items: flex-end; }
 .chat__input {
   resize: none;
@@ -1247,7 +1237,7 @@ dialog.modal[open] { animation: modal-in .22s var(--ease); }
 
 audio { width: 100%; border-radius: var(--r-sm); }
 
-/* Transcribe call-to-action */
+
 .transcribe-bar {
   display: flex;
   align-items: center;
@@ -1266,7 +1256,7 @@ audio { width: 100%; border-radius: var(--r-sm); }
   .transcribe-bar .btn { width: 100%; }
 }
 
-/* Running: animated sheen */
+
 .transcribe-bar.is-running {
   border-style: solid;
   position: relative;
@@ -1281,7 +1271,7 @@ audio { width: 100%; border-radius: var(--r-sm); }
 }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
-/* Failed */
+
 .transcribe-bar.is-failed {
   border-style: solid;
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
@@ -1289,10 +1279,10 @@ audio { width: 100%; border-radius: var(--r-sm); }
 }
 .transcribe-bar.is-failed #transcribeTitle { color: var(--danger); }
 
-/* Processing: keep the locked button legible instead of faded out */
+
 .transcribe-bar.is-running .btn:disabled { opacity: .9; cursor: progress; }
 
-/* Done: fade back, button locked out */
+
 .transcribe-bar.is-done {
   border-style: solid;
   border-color: var(--border);
@@ -1304,7 +1294,7 @@ audio { width: 100%; border-radius: var(--r-sm); }
   border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
   box-shadow: none;
 }
-/* Make the disabled state read as "already done", not "broken" */
+
 .transcribe-bar.is-done .btn:disabled { opacity: 1; cursor: default; }
 
 .user-result {
@@ -1324,7 +1314,7 @@ audio { width: 100%; border-radius: var(--r-sm); }
 }
 .user-result:hover { background: var(--surface-2); border-color: var(--brand); }
 
-/* Utilities */
+
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
@@ -1334,7 +1324,7 @@ audio { width: 100%; border-radius: var(--r-sm); }
 .mt-a { margin-top: auto; }
 .text-center { text-align: center; }
 
-/* Reveal on load */
+
 .reveal { animation: reveal .5s var(--ease) both; }
 .reveal:nth-child(2) { animation-delay: .05s; }
 .reveal:nth-child(3) { animation-delay: .1s; }

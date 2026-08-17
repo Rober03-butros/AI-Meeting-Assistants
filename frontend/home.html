@@ -140,10 +140,8 @@ if (requireAuth()) {
     }
   })();
 
-  /* ============================================================
-     Live activity: watch for meetings the server is processing.
-     ============================================================ */
-  enableChime();                    // arm audio on first user gesture
+
+  enableChime();
   requestNotifyPermission();
 
   const card = (m, { meta = '', trailing = '', cls = '' } = {}) => `
@@ -157,22 +155,12 @@ if (requireAuth()) {
       <span class="meeting-card__chev">${icon('chevron', 18)}</span>
     </a>`;
 
-  /* ---- truth cache -------------------------------------------------------
-     Many /meetings LIST endpoints omit the transcript body AND the status
-     column (they return a slim schema). In that case the list alone cannot
-     tell "never transcribed" from "transcribed, text just not included",
-     so a finished meeting wrongly lands in "Needs your attention".
 
-     Fix: for any meeting the list *claims* is untranscribed, verify once
-     against GET /meetings/{id}, which does carry the transcript. Results are
-     cached so we never re-check the same meeting.                          */
-  const hydrated = new Map();       // id -> true (transcribed) | false (really empty)
-  const detail   = new Map();       // id -> last full row from GET /meetings/{id}
+  const hydrated = new Map(); 
+  const detail   = new Map();
   let hydrating = false;
 
-  /** Did the global watcher observe this meeting reach a finished state?
-   *  The watcher's map is the same source that drives the notifications, so
-   *  if it says "done" the cached `false` here is stale and must be redone. */
+
   const watcherSawFinish = id => {
     try {
       const seen = JSON.parse(localStorage.getItem('watch_seen') || '{}');
@@ -180,26 +168,19 @@ if (requireAuth()) {
     } catch { return false; }
   };
 
-  /** Merge the list row with anything we learned from the detail endpoint.
-   *  The cached detail must NEVER mask fresher list data: if the list already
-   *  proves the meeting is finished, the list wins. Otherwise a detail row
-   *  cached while the job was running would keep it looking unfinished. */
   const enrich = m => {
     const d = detail.get(String(m.id));
     if (!d) return m;
     const listSt = transcriptionStatus(m);
     if (listSt === TSTATUS.DONE || listSt === TSTATUS.FAILED || hasTranscript(m)) {
-      detail.delete(String(m.id));               // cache is obsolete, drop it
+      detail.delete(String(m.id)); 
       return m;
     }
     return { ...m, ...d };
   };
 
-  /* ---- segment / summary state -------------------------------------------
-     The /meetings list says nothing about segments, so we ask the segment
-     endpoint once per transcribed meeting and cache the answer. Results feed
-     the "Needs your attention" panel.                                      */
-  const segState = new Map();      // id -> { total, summarised }
+
+  const segState = new Map(); 
   let probing = false;
 
   async function probeSegments(list) {
@@ -211,7 +192,7 @@ if (requireAuth()) {
       const st = transcriptionStatus(m);
       if (st === TSTATUS.PROCESSING || st === TSTATUS.FAILED) return false;
       return hasTranscript(m) || st === TSTATUS.DONE || hydrated.get(id) === true;
-    }).slice(0, 8);                                  // cap the fan-out
+    }).slice(0, 8);
 
     if (!targets.length) return;
     probing = true;
@@ -221,7 +202,6 @@ if (requireAuth()) {
           const res = await api(SEG_API.listAll(m.id), { cache: 'no-store' });
           return [String(m.id), segmentCounts(res)];
         } catch (err) {
-          // 404 simply means "never segmented".
           if (err.status === 404) return [String(m.id), { total: 0, summarised: 0 }];
           return null;
         }
@@ -232,7 +212,6 @@ if (requireAuth()) {
     } finally { probing = false; }
   }
 
-  /** Invalidate a meeting's cached segment state (after a job finishes). */
   function forgetSegState(id) { segState.delete(String(id)); }
 
   async function hydrateUnknowns(list) {
@@ -242,15 +221,11 @@ if (requireAuth()) {
       const id = String(m.id);
       const st = transcriptionStatus(enrich(m));
       if (st === TSTATUS.FAILED) return false;
-      // Re-check anything still running so we notice when it finishes,
-      // plus anything the list can't prove is finished.
       if (st === TSTATUS.PROCESSING) return true;
-      if (hasTranscript(m) || st === TSTATUS.DONE) return false;   // list already proved it
-      // A meeting we previously proved empty must be re-checked once it has
-      // been transcribed, otherwise it is stuck in "Needs your attention".
+      if (hasTranscript(m) || st === TSTATUS.DONE) return false;
       if (hydrated.get(id) === false && watcherSawFinish(id)) return true;
       return !hydrated.has(id);
-    }).slice(0, 12);                                               // cap the fan-out
+    }).slice(0, 12);
 
     if (!suspects.length) return;
     hydrating = true;
@@ -264,24 +239,22 @@ if (requireAuth()) {
 
       let changed = false;
       for (const [id, ok, full] of checked) {
-        if (ok === null) continue;                 // request failed: try again next tick
+        if (ok === null) continue;
         hydrated.set(id, ok);
         if (full) {
-          detail.set(id, full);                    // keep status/summary/transcript
+          detail.set(id, full);
           changed = true;
         }
       }
-      if (changed) renderAll(list);                // re-render with the richer data
+      if (changed) renderAll(list);
     } finally { hydrating = false; }
   }
 
-  // Remembers what was processing on the previous tick so we only celebrate
-  // a genuine processing -> done transition (never on first paint).
+
   let prevProcessing = new Set();
   let firstRun = true;
   let pollDelay = 4000;
 
-  /* mute toggle */
   const muteBtn = $('#muteBtn');
   const paintMute = () => {
     if (!muteBtn) return;
@@ -296,31 +269,24 @@ if (requireAuth()) {
       const muted = localStorage.getItem('mute_sounds') === '1';
       localStorage.setItem('mute_sounds', muted ? '0' : '1');
       paintMute();
-      if (muted) chime('success');    // preview when switching back on
+      if (muted) chime('success');
     };
   }
   paintMute();
 
   function renderAll(rawList) {
-    // Fold in anything learned from GET /meetings/{id} so a `status` that only
-    // exists on the detail endpoint still drives the "Processing now" panel.
+
     const list = rawList.map(enrich);
-    /* ---- stats ---- */
     $('#statTotal').textContent = list.length;
     $('#statSummarised').textContent = list.filter(hasSummary).length;
     const week = Date.now() - 7 * 864e5;
     $('#statRecent').textContent = list.filter(m => new Date(m.created_at) >= week).length;
 
-    /* ---- bucket by state ----
-       A meeting counts as "processing" if the server says so, OR if this
-       browser started a job on the meeting page (localStorage marker) and
-       the server hasn't reported a terminal state yet. The marker covers
-       backends whose /meetings list omits the status column.              */
     const startedHere = m => {
       try {
         const t = Number(localStorage.getItem(`transcribing:${m.id}`));
         if (!t) return false;
-        if (Date.now() - t > 60 * 60 * 1000) {            // stale -> drop it
+        if (Date.now() - t > 60 * 60 * 1000) {
           localStorage.removeItem(`transcribing:${m.id}`);
           return false;
         }
@@ -333,42 +299,34 @@ if (requireAuth()) {
       if (st === TSTATUS.PROCESSING) return true;
       if (st === TSTATUS.DONE || st === TSTATUS.FAILED) {
         try { localStorage.removeItem(`transcribing:${m.id}`); } catch {}
-        return false;                                     // finished: clear the marker
+        return false;
       }
-      return startedHere(m);                              // no signal -> trust the marker
+      return startedHere(m);
     };
 
-    /* A meeting is also "busy" while a segment/summarise job runs — those use
-       the same persisted job locks the meeting page writes. */
     const jobKind = m => jobRunning(JOB.SEGMENT, m.id) ? 'Segmenting'
                        : jobRunning(JOB.SUMMARIZE, m.id) ? 'Summarising'
                        : null;
 
     const processing = list.filter(m => isProcessing(m) || jobKind(m));
     const failed     = list.filter(m => transcriptionStatus(m) === TSTATUS.FAILED);
-    /* A meeting counts as transcribed if it has text OR the server says done.
-       The /meetings LIST endpoint often omits the (large) transcript body, so
-       we must not conclude "not transcribed" just because the text is absent. */
+
     const isTranscribed = m => hasTranscript(m) || transcriptionStatus(m) === TSTATUS.DONE;
 
-    /* Only nag about summaries if the backend actually produces them —
-       i.e. at least one meeting somewhere has a summary. Otherwise every
-       transcribed meeting would sit here forever. */
     const summariesInUse = list.some(hasSummary);
 
-    /* What is the next action for this meeting? null = nothing to do. */
     const nextAction = m => {
       const id = String(m.id);
       const st = transcriptionStatus(m);
-      if (isProcessing(m) || jobKind(m)) return null;          // already busy
+      if (isProcessing(m) || jobKind(m)) return null;
       if (st === TSTATUS.FAILED) return 'retry';
       if (!isTranscribed(m)) return 'transcribe';
 
       const seg = segState.get(id);
-      if (!seg) return null;                                   // not probed yet
-      if (seg.total === 0) return 'segment';                   // transcript, no topics
-      if (seg.summarised < seg.total) return 'summarise';      // topics, missing summaries
-      return null;                                             // fully processed
+      if (!seg) return null;
+      if (seg.total === 0) return 'segment';
+      if (seg.summarised < seg.total) return 'summarise';
+      return null;
     };
 
     const needsWork = list.filter(m => {
@@ -376,11 +334,8 @@ if (requireAuth()) {
       return a === 'transcribe' || a === 'segment' || a === 'summarise';
     });
 
-    /* Completion detection + chime + notifications now live in app.js
-       (startTranscriptionWatcher), so they fire on every page, not just here. */
     firstRun = false;
 
-    /* ---- PANEL 1: processing now ---- */
     $('#activeCount').innerHTML = `<span class="dot dot--pulse"></span> ${processing.length}`;
     $('#activeList').innerHTML = processing.length
       ? processing.map(m => card(m, {
@@ -393,8 +348,7 @@ if (requireAuth()) {
            <p class="muted">Nothing is processing right now.</p>
          </div>`;
 
-    /* ---- PANEL 2: needs attention ---- */
-    const todo = [...failed, ...needsWork];   // 'retry' items come from `failed`
+    const todo = [...failed, ...needsWork];
     $('#todoCount').textContent = todo.length;
     $('#todoList').innerHTML = todo.length
       ? todo.slice(0, 8).map(m => {
@@ -424,9 +378,7 @@ if (requireAuth()) {
          </div>`;
   }
 
-  /* ---------- data ----------
-     The site-wide watcher in app.js already polls /meetings on every page.
-     We reuse its result instead of running a second, competing poll loop. */
+
   let lastList = null;
   function paint(list) {
     lastList = list;
@@ -448,27 +400,22 @@ if (requireAuth()) {
   }
 
   window.addEventListener('jobs:changed', e => {
-    // A finished segment/summarise job invalidates the cached counts.
     if (e.detail && e.detail.running === false) forgetSegState(e.detail.id);
     if (lastList) { paint(lastList); probeSegments(lastList); }
   });
   window.addEventListener('meetings:refreshed', e => {
-    // A meeting that just finished must drop its stale caches, otherwise it
-    // stays in "Needs your attention" until a reload.
+
     const finished = e.detail.finished || [];
     for (const id of finished) {
       hydrated.delete(String(id));
       detail.delete(String(id));
-      forgetSegState(id);          // newly transcribed -> re-probe for segments
+      forgetSegState(id); 
     }
     const list = e.detail.list || [];
     paint(list);
-    // Immediately find out whether the freshly-transcribed meeting needs
-    // segmenting, so it appears in "Needs your attention" without a reload.
     if (finished.length) probeSegments(list);
   });
 
-  // Initial paint (the watcher's first tick lands ~1.5s later).
   (async () => {
     try {
       const data = await api('/meetings', { cache: 'no-store' });

@@ -70,7 +70,6 @@ const paintToggle = () => {
 paintToggle();
 toggle.onclick = () => { pw.type = pw.type === 'password' ? 'text' : 'password'; paintToggle(); };
 
-/* strength meter */
 const LABELS = ['Too short', 'Weak password', 'Fair password', 'Good password', 'Strong password'];
 pw.addEventListener('input', () => {
   const v = pw.value;

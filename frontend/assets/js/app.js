@@ -1,38 +1,14 @@
-/* ============================================================
-   AI Meeting Assistant — shared runtime
-   Config, API client (auto token-refresh), auth guard,
-   toasts, modals, theme, icons, helpers.
-   ============================================================ */
-
-/**
- * API base URL resolution.
- *
- * Priority:
- *   1. window.API_BASE  — explicit override, always wins.
- *   2. ''               — SAME ORIGIN. Used when the page is served by the backend
- *                         itself (FastAPI StaticFiles). Requests become relative
- *                         ("/auth/login"), so the browser sends NO CORS preflight
- *                         and no CORS config is needed at all.
- *   3. http://127.0.0.1:8000 — fallback for a standalone dev server (port 5500 etc.),
- *                         which IS cross-origin and DOES require CORSMiddleware.
- *
- * Heuristic: if we're not on a known static-dev-server port, assume the backend
- * is serving us and stay same-origin.
- */
 function resolveApiBase() {
   if (typeof window === 'undefined') return '';
-  if (window.API_BASE !== undefined) return window.API_BASE;      // explicit wins ('' allowed)
+  if (window.API_BASE !== undefined) return window.API_BASE;
 
   const { protocol, port } = window.location;
 
-  // Opened directly from disk (file://) — must point at the backend.
   if (protocol === 'file:') return 'http://127.0.0.1:8000';
 
-  // Common standalone static-server ports => backend lives elsewhere.
   const DEV_STATIC_PORTS = ['3000', '4200', '5173', '5500', '8080', '8081'];
   if (DEV_STATIC_PORTS.includes(port)) return 'http://127.0.0.1:8000';
 
-  // Otherwise assume the backend is serving these files: stay same-origin.
   return '';
 }
 
@@ -40,7 +16,6 @@ export const CONFIG = {
   get API() { return resolveApiBase(); },
 };
 
-/* ---------- tiny DOM helpers ---------- */
 export const $  = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -56,7 +31,7 @@ export function el(tag, props = {}, ...children) {
   return node;
 }
 
-/* ---------- token store ---------- */
+
 export const Tokens = {
   get access()  { return localStorage.getItem('access_token'); },
   get refresh() { return localStorage.getItem('refresh_token'); },
@@ -69,7 +44,7 @@ export const Tokens = {
   },
 };
 
-/* ---------- icons ---------- */
+
 const ICONS = {
   logo:     '<path d="M12 2a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
   mic:      '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5M8 22h8"/>',
@@ -108,7 +83,7 @@ export function icon(name, size = 20) {
     stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 }
 
-/* ---------- theme ---------- */
+
 export const Theme = {
   init() {
     const saved = localStorage.getItem('theme');
@@ -124,7 +99,7 @@ export const Theme = {
 };
 Theme.init();
 
-/* ---------- toasts ---------- */
+
 let toastHost;
 export function toast(message, type = 'info', ms = 4000) {
   if (!toastHost) {
@@ -145,7 +120,7 @@ export function escapeHtml(str = '') {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/* ---------- confirm dialog (replaces window.confirm) ---------- */
+
 export function confirmDialog({ title = 'Are you sure?', body = '', confirmText = 'Confirm', danger = false }) {
   return new Promise(resolve => {
     const dlg = el('dialog', { class: 'modal' });
@@ -167,16 +142,13 @@ export function confirmDialog({ title = 'Are you sure?', body = '', confirmText 
   });
 }
 
-/* ---------- button loading state ---------- */
+
 export function busy(btn, on = true) {
   if (!btn) return;
   btn.classList.toggle('is-loading', on);
   btn.disabled = on;
 }
 
-/* ============================================================
-   API client
-   ============================================================ */
 export class ApiError extends Error {
   constructor(message, status, data) {
     super(message);
@@ -196,7 +168,7 @@ function readDetail(data, fallback) {
 let refreshInFlight = null;
 
 async function refreshSession() {
-  if (refreshInFlight) return refreshInFlight;           // de-dupe concurrent 401s
+  if (refreshInFlight) return refreshInFlight; 
   const refresh_token = Tokens.refresh;
   if (!refresh_token) return false;
 
@@ -219,11 +191,8 @@ async function refreshSession() {
   return refreshInFlight;
 }
 
-/**
- * api(path, { method, body, auth, raw, signal })
- * - JSON in / JSON out by default; pass FormData as body and headers are handled.
- * - On 401 with a refresh token present, retries once after refreshing.
- */
+
+
 export async function api(path, opts = {}) {
   const { method = 'GET', body, auth = true, raw = false, signal, cache, _retried } = opts;
 
@@ -266,7 +235,7 @@ export async function api(path, opts = {}) {
   return data;
 }
 
-/* ---------- auth guard ---------- */
+
 export function requireAuth() {
   if (!Tokens.access) {
     location.replace(`login.html?next=${encodeURIComponent(location.pathname + location.search)}`);
@@ -285,12 +254,12 @@ export async function logout() {
       method: 'POST',
       body: { refresh_token: Tokens.refresh, access_token: Tokens.access },
     });
-  } catch { /* logout locally regardless */ }
+  } catch {  }
   Tokens.clear();
   location.href = 'login.html';
 }
 
-/* ---------- app bar ---------- */
+
 export function mountAppBar({ active = '', user = null } = {}) {
   const bar = $('#appbar');
   if (!bar) return;
@@ -330,26 +299,19 @@ export function mountAppBar({ active = '', user = null } = {}) {
     if (await confirmDialog({ title: 'Sign out?', body: 'You will need to sign in again.', confirmText: 'Sign out' })) logout();
   };
 
-  // Isolated: a failure rendering the bell must never stop the watcher, and
-  // vice-versa. Previously one bad stored notification threw here and silently
-  // killed notifications + sound on every page except the one that recovered.
+
   try { mountNotifications(); }
   catch (e) { console.error('[appbar] notification bell failed:', e); }
   try { startTranscriptionWatcher(); }
   catch (e) { console.error('[appbar] watcher failed to start:', e); }
 
-  // Collapse nav labels on small screens
   const mq = window.matchMedia('(max-width: 620px)');
   const applyMq = () => $$('.nav-label', bar).forEach(s => s.classList.toggle('sr-only', mq.matches));
   applyMq();
   mq.addEventListener('change', applyMq);
 }
 
-/* ============================================================
-   Transcription status — shared vocabulary
-   The DB `status` column is the source of truth. Kept here so the
-   meeting page, meetings list and home dashboard all agree.
-   ============================================================ */
+
 export const TSTATUS = { IDLE: 'idle', PROCESSING: 'processing', DONE: 'done', FAILED: 'failed' };
 
 const S_PROCESSING = ['processing', 'pending', 'queued', 'running', 'in_progress',
@@ -357,7 +319,7 @@ const S_PROCESSING = ['processing', 'pending', 'queued', 'running', 'in_progress
 const S_FAILED     = ['failed', 'error', 'failure', 'cancelled', 'canceled'];
 const S_DONE       = ['done', 'completed', 'complete', 'success', 'succeeded', 'finished', 'ready'];
 
-/** Normalise a meeting row -> TSTATUS. Returns null when there's no signal. */
+
 export function transcriptionStatus(m) {
   const raw = String(m?.status ?? m?.transcription_status ?? m?.state ?? '').toLowerCase().trim();
   const text = (typeof m?.transcripts === 'string' ? m.transcripts : m?.transcript) || '';
@@ -366,7 +328,7 @@ export function transcriptionStatus(m) {
   if (S_FAILED.includes(raw))     return TSTATUS.FAILED;
   if (text.trim())                return TSTATUS.DONE;
   if (S_DONE.includes(raw))       return TSTATUS.DONE;
-  if (raw) return null;                 // unknown value -> no opinion
+  if (raw) return null;  
   return TSTATUS.IDLE;
 }
 
@@ -379,11 +341,7 @@ export function hasSummary(m) {
   return !!String(m?.summary || '').trim();
 }
 
-/* ============================================================
-   Notification chime — WebAudio, no asset file needed.
-   Browsers block audio until the user has interacted with the page,
-   so we lazily create the context and unlock it on first gesture.
-   ============================================================ */
+
 let _actx = null;
 let _audioUnlocked = false;
 
@@ -396,63 +354,44 @@ function getCtx() {
   return _actx;
 }
 
-/**
- * Unlock audio on the first user gesture.
- *
- * Browsers create the AudioContext in a "suspended" state until the user has
- * interacted with the page. We resume it during the gesture AND play a silent
- * 1-sample buffer, which is what actually satisfies the autoplay policy on
- * Safari/iOS. Re-arms itself if the context gets suspended again (e.g. after
- * the tab is backgrounded for a while).
- */
 export function enableChime() {
   const unlock = async () => {
     const ctx = getCtx();
     if (!ctx) return;
     try {
       if (ctx.state === 'suspended') await ctx.resume();
-      // Silent buffer: required by Safari/iOS to fully unlock output.
       const buf = ctx.createBuffer(1, 1, 22050);
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(ctx.destination);
       src.start(0);
       _audioUnlocked = ctx.state === 'running';
-    } catch { /* ignore */ }
+    } catch {}
   };
 
   ['pointerdown', 'keydown', 'touchstart', 'click'].forEach(e =>
     window.addEventListener(e, unlock, { passive: true }));
 
-  // Contexts can be auto-suspended when a tab loses focus; re-resume on return.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && _actx?.state === 'suspended') _actx.resume().catch(() => {});
   });
 }
 
-/**
- * Pleasant two-note "ta-da" chime.
- *
- * NOTE: ctx.resume() is ASYNCHRONOUS and a suspended context has a frozen
- * currentTime. Scheduling notes before the resume settles puts them in the
- * past, so nothing is audible — that must be awaited first.
- */
 export async function chime(kind = 'success') {
   if (localStorage.getItem('mute_sounds') === '1') return false;
   const ctx = getCtx();
   if (!ctx) return false;
 
   try {
-    if (ctx.state === 'suspended') await ctx.resume();   // <- must await
-  } catch { /* fall through */ }
+    if (ctx.state === 'suspended') await ctx.resume();  
+  } catch {  }
 
   if (ctx.state !== 'running') {
     console.warn('[chime] AudioContext is "' + ctx.state + '" — click the page once to enable sound.');
     return false;
   }
 
-  // Read currentTime AFTER the resume, and start slightly ahead of "now"
-  // so the first note is never scheduled in the past.
+
   const now = ctx.currentTime + 0.03;
   const notes = kind === 'error' ? [[622.25, 0], [466.16, 0.16]]
                                  : [[1046.5, 0], [1318.5, 0.13]];
@@ -470,8 +409,8 @@ export async function chime(kind = 'success') {
 
     const t0 = now + offset;
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(1, t0 + 0.015);     // quick attack
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.42); // soft decay
+    gain.gain.exponentialRampToValueAtTime(1, t0 + 0.015); 
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.42); 
 
     osc.connect(gain).connect(master);
     osc.start(t0);
@@ -480,14 +419,13 @@ export async function chime(kind = 'success') {
   return true;
 }
 
-/** Browser notification for when the tab is in the background. */
 export function notifyDesktop(title, body) {
   try {
     if (!('Notification' in window)) return;
     if (Notification.permission === 'granted' && document.hidden) {
       new Notification(title, { body, icon: undefined, tag: 'ai-meeting' });
     }
-  } catch { /* ignore */ }
+  } catch {}
 }
 
 export function requestNotifyPermission() {
@@ -495,17 +433,13 @@ export function requestNotifyPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {});
     }
-  } catch { /* ignore */ }
+  } catch { }
 }
 
-/* ============================================================
-   Notification centre — persistent, survives reloads & page changes.
-   Toasts disappear; these stay until the user reads them.
-   ============================================================ */
+
 const NOTES_KEY = 'notifications';
 const NOTES_MAX = 30;
 
-/** Never throws, whatever junk is in storage. */
 function safeAgo(at) {
   const n = Number(at);
   if (!Number.isFinite(n) || n <= 0) return '';
@@ -517,13 +451,12 @@ export const Notes = {
     try {
       const raw = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
       if (!Array.isArray(raw)) return [];
-      // Drop anything malformed so one bad entry can never break the bell.
       return raw.filter(n => n && typeof n === 'object' && typeof n.title === 'string');
     } catch { return []; }
   },
   unread() { return this.all().filter(n => !n.read).length; },
 
-  /** Returns false if this id was already recorded (prevents duplicates). */
+
   add({ id, title, body = '', kind = 'ok', href = '' }) {
     const list = this.all();
     if (id && list.some(n => n.id === id)) return false;
@@ -544,12 +477,10 @@ export const Notes = {
   },
 };
 
-// Sync across tabs.
 window.addEventListener('storage', e => {
   if (e.key === NOTES_KEY) try { window.dispatchEvent(new CustomEvent('notes:changed')); } catch {}
 });
 
-/** Bell + dropdown, mounted into the app bar. */
 export function mountNotifications() {
   const host = $('#notifSlot');
   if (!host) return;
@@ -612,18 +543,8 @@ export function mountNotifications() {
   paint();
 }
 
-/* ============================================================
-   Global transcription watcher.
-   Runs on EVERY page (started by mountAppBar), so a job that finishes
-   while the user is on the recorder, meetings list or a detail page
-   still produces a sound + notification.
-
-   Cross-tab safe: a short localStorage lease means only ONE tab polls,
-   and the winner broadcasts results to the others via the notifications
-   store, so you never get a double chime.
-   ============================================================ */
-const WATCH_SEEN  = 'watch_seen';       // id -> last known state
-const WATCH_LEASE = 'watch_lease';      // {tab, at}
+const WATCH_SEEN  = 'watch_seen';       
+const WATCH_LEASE = 'watch_lease';  
 const TAB_ID = `t_${Math.random().toString(36).slice(2, 9)}`;
 const LEASE_MS = 12000;
 
@@ -636,35 +557,20 @@ function readSeen() {
 function writeSeen(map) {
   try { localStorage.setItem(WATCH_SEEN, JSON.stringify(map)); } catch {}
 }
-/**
- * Merge updates into the stored map, re-reading first.
- *
- * CRITICAL: watchTick() snapshots `seen`, then awaits network calls for
- * hundreds of ms. If the user presses Transcribe during that window,
- * trackTranscription() writes "processing" — and a plain writeSeen(snapshot)
- * would clobber it, so the watcher would never see the transition and would
- * stay silent forever. Anything marked PROCESSING mid-flight is preserved.
- */
+
 function mergeSeen(updates) {
   const current = readSeen();
   for (const [k, v] of Object.entries(updates)) {
     if (current[k] === TSTATUS.PROCESSING && v !== TSTATUS.PROCESSING
-        && !terminalThisTick.has(k)) continue;   // don't erase a job started mid-tick
+        && !terminalThisTick.has(k)) continue;  
     current[k] = v;
   }
   writeSeen(current);
   return current;
 }
-// Ids this tick genuinely observed reaching a terminal state.
 let terminalThisTick = new Set();
 
-/** Only one tab should poll. Returns true if this tab holds the lease.
- *
- *  IMPORTANT: navigating between pages creates a NEW TAB_ID while the previous
- *  page's lease is still sitting in localStorage. Without releasing it on
- *  unload, every page you navigate to would be locked out for up to LEASE_MS
- *  and notifications would appear to "only work on the page that started".
- */
+
 function claimLease() {
   let lease = null;
   try { lease = JSON.parse(localStorage.getItem(WATCH_LEASE) || 'null'); } catch {}
@@ -674,7 +580,7 @@ function claimLease() {
   return true;
 }
 
-/** Hand the lease back so the next page can poll immediately. */
+
 function releaseLease() {
   try {
     const lease = JSON.parse(localStorage.getItem(WATCH_LEASE) || 'null');
@@ -691,17 +597,11 @@ function localMarker(id) {
   } catch { return false; }
 }
 
-/** Identifies a single transcription RUN, so repeat runs of the same meeting
- *  each produce their own notification instead of being deduped forever. */
 function runStamp(id) {
   try { return localStorage.getItem(`transcribing:${id}`) || 'x'; } catch { return 'x'; }
 }
 
-/* ============================================================
-   SEGMENT / SUMMARY ENDPOINTS
-   Single source of truth — meeting.html and home.html both use these,
-   so a path change only has to happen once.
-   ============================================================ */
+
 export const SEG_API = {
   status:        id  => `/meetings/${id}/segments/status`,
   segment:       id  => `/segment/segment/${id}`,
@@ -712,7 +612,6 @@ export const SEG_API = {
   summarised:    id  => `/summarize/get_summarized_segments/${id}`,
 };
 
-/** Normalise any segments payload -> { total, summarised }. */
 export function segmentCounts(res) {
   const arr = Array.isArray(res) ? res
             : Array.isArray(res?.segments) ? res.segments
@@ -724,19 +623,12 @@ export function segmentCounts(res) {
   return { total, summarised, list: arr };
 }
 
-/* ============================================================
-   GENERIC JOB LOCKS  (transcribe / segment / summarize)
-   ------------------------------------------------------------
-   One mechanism for every long-running job so they cannot drift
-   apart. State lives in localStorage keyed `job:<kind>:<id>` and
-   therefore survives a page refresh, navigation and new tabs.
-   ============================================================ */
+
 export const JOB = { TRANSCRIBE: 'transcribe', SEGMENT: 'segment', SUMMARIZE: 'summarize' };
-const JOB_TTL = 60 * 60 * 1000;                 // stale lock auto-expires
+const JOB_TTL = 60 * 60 * 1000; 
 
 const jobKey = (kind, id) => `job:${kind}:${id}`;
 
-/** Mark a job as running. Returns false if one is already in flight. */
 export function jobStart(kind, id) {
   const k = jobKey(kind, id);
   if (jobRunning(kind, id)) return false;
@@ -745,16 +637,12 @@ export function jobStart(kind, id) {
   return true;
 }
 
-/* Notifying listeners must NEVER be able to abort a lock change: if the
-   dispatch throws, the lock would stay in localStorage and the buttons would
-   remain disabled forever. */
 function emitJobsChanged(kind, id, running) {
   try {
     window.dispatchEvent(new CustomEvent('jobs:changed', { detail: { kind, id, running } }));
-  } catch { /* ignore */ }
+  } catch {}
 }
 
-/** Is this job currently running (per persisted state)? */
 export function jobRunning(kind, id) {
   try {
     const t = Number(localStorage.getItem(jobKey(kind, id)));
@@ -764,17 +652,15 @@ export function jobRunning(kind, id) {
   } catch { return false; }
 }
 
-/** Timestamp of the current run — used to key notifications per-run. */
 export function jobStamp(kind, id) {
   try { return localStorage.getItem(jobKey(kind, id)) || 'x'; } catch { return 'x'; }
 }
 
 export function jobEnd(kind, id) {
-  try { localStorage.removeItem(jobKey(kind, id)); } catch {}   // release FIRST
+  try { localStorage.removeItem(jobKey(kind, id)); } catch {} 
   emitJobsChanged(kind, id, false);
 }
 
-/** Every meeting id with a live job of this kind (for the home panel). */
 export function jobsOfKind(kind) {
   const out = [];
   try {
@@ -795,15 +681,10 @@ const JOB_LABEL = {
                      okBody: 'has been summarised.',  failBody: 'could not be summarised.' },
 };
 
-/**
- * Finish a segment/summarize job: clear the lock, then notify exactly once
- * (bell + sound + toast), keyed by run so a repeat run notifies again.
- */
+
 export function notifyJob(kind, id, title, ok = true) {
-  // Read the stamp BEFORE releasing the lock; once released jobStamp() falls
-  // back to 'x' and a second call would look like a different run and re-fire.
   const stamp = jobStamp(kind, id);
-  if (stamp === 'x') return false;          // no live run -> nothing to announce
+  if (stamp === 'x') return false;
   const L = JOB_LABEL[kind];
   if (!L) { jobEnd(kind, id); return false; }
   const name = title || 'Meeting';
@@ -825,16 +706,10 @@ export function notifyJob(kind, id, title, ok = true) {
   return true;
 }
 
-/**
- * Emit a transcription notification (bell + sound + toast + desktop).
- *
- * Shared by the global watcher AND the meeting page, which detects completion
- * sooner because it polls faster. Keyed by meeting + run stamp, so whichever
- * gets there first wins and the other is silently de-duplicated.
- */
+
 export function notifyTranscription(id, title, ok = true) {
   const key = String(id);
-  terminalThisTick.add(key);          // allow mergeSeen to record the terminal state
+  terminalThisTick.add(key);
   const stamp = runStamp(key);
   const name = title || 'Meeting';
   const added = Notes.add({
@@ -845,9 +720,8 @@ export function notifyTranscription(id, title, ok = true) {
     body: ok ? `\u201C${name}\u201D has been transcribed.`
              : `\u201C${name}\u201D could not be transcribed. Open it to retry.`,
   });
-  if (!added) return false;               // already announced by the other path
+  if (!added) return false;
 
-  // Mark terminal so the watcher won't re-announce, then release the marker.
   mergeSeen({ [key]: ok ? TSTATUS.DONE : TSTATUS.FAILED });
   try { localStorage.removeItem(`transcribing:${key}`); } catch {}
 
@@ -858,25 +732,18 @@ export function notifyTranscription(id, title, ok = true) {
   return true;
 }
 
-/**
- * Register a job with the watcher the instant it starts.
- *
- * This is essential: the watcher polls on an interval, so a short job can
- * start AND finish between two ticks. If the watcher never recorded the
- * meeting as "processing" it sees no transition and stays silent.
- * Called by the meeting page immediately after POST /transcribe.
- */
+
 export function trackTranscription(id) {
   const key = String(id);
   try { localStorage.setItem(`transcribing:${key}`, String(Date.now())); } catch {}
-  mergeSeen({ [key]: TSTATUS.PROCESSING }); // seed the "before" side of the transition
-  schedule(2500);                           // start watching promptly
+  mergeSeen({ [key]: TSTATUS.PROCESSING }); 
+  schedule(2500);
 }
 
 async function watchTick() {
   if (!Tokens.access) return schedule(30000);
   if (document.hidden) return schedule(watchDelay);
-  if (!claimLease()) return schedule(3000);           // another tab polls; retry soon
+  if (!claimLease()) return schedule(3000);
 
   try {
     const data = await api('/meetings', { cache: 'no-store' });
@@ -889,10 +756,6 @@ async function watchTick() {
     let anyRunning = false;
     terminalThisTick = new Set();
 
-    /* Slim list endpoints return neither `status` nor the transcript, so a
-       finished job is invisible here. For every meeting we believe is running
-       (previous state, or the local marker written by the meeting page) we ask
-       the DETAIL endpoint, which always carries the real state.            */
     const watched = list.filter(m => {
       const id = String(m.id);
       return seen[id] === TSTATUS.PROCESSING || localMarker(id);
@@ -902,23 +765,21 @@ async function watchTick() {
     await Promise.all(watched.map(async m => {
       const id = String(m.id);
       if (transcriptionStatus(m) === TSTATUS.DONE
-          || transcriptionStatus(m) === TSTATUS.FAILED) return;   // list already told us
+          || transcriptionStatus(m) === TSTATUS.FAILED) return;
       try {
         const full = await api(`/meetings/${encodeURIComponent(m.id)}`, { cache: 'no-store' });
         const st = transcriptionStatus(full);
         if (st) resolved.set(id, st);
-      } catch { /* try again next tick */ }
+      } catch {}
     }));
 
-    // Re-read: the awaits above may have taken a while and the user could have
-    // pressed Transcribe in that window.
+
     seen = readSeen();
 
     for (const m of list) {
       const id = String(m.id);
       let st = resolved.get(id) ?? transcriptionStatus(m);
 
-      // Still no signal? Trust the local marker written when the job started.
       if (st !== TSTATUS.PROCESSING && st !== TSTATUS.DONE && st !== TSTATUS.FAILED
           && localMarker(id)) st = TSTATUS.PROCESSING;
 
@@ -931,7 +792,6 @@ async function watchTick() {
       const was = seen[id];
       const name = m.title || 'Meeting';
 
-      // Fire only on a real processing -> terminal transition.
       if (was === TSTATUS.PROCESSING && st === TSTATUS.DONE) {
         terminalThisTick.add(id);
         notifyTranscription(id, name, true);
@@ -951,7 +811,7 @@ async function watchTick() {
     } catch {}
     schedule(anyRunning ? 6000 : 25000);
   } catch (err) {
-    if (err.status === 401) return;                    // logged out: stop quietly
+    if (err.status === 401) return;
     schedule(Math.min(watchDelay * 2, 60000));
   }
 }
@@ -962,16 +822,13 @@ function schedule(ms) {
   watchTimer = setTimeout(watchTick, ms);
 }
 
-/** Start the site-wide watcher. Safe to call more than once. */
 export function startTranscriptionWatcher() {
   if (watchTimer) return;
   enableChime();
   requestNotifyPermission();
-  schedule(1500);                                      // first check shortly after load
+  schedule(1500);
 
-  /* Debug hooks — run in DevTools console:
-       __notifyTest()   fire a fake "complete" notification + sound
-       __notifyState()  show what the watcher currently believes          */
+
   window.__notifyTest = async () => {
     Notes.add({ id: `test_${Date.now()}`, kind: 'ok', title: 'Test notification',
                 body: 'If you can hear a chime, audio is working.' });
@@ -979,7 +836,7 @@ export function startTranscriptionWatcher() {
     toast('Test notification fired', 'ok');
     return played ? 'chime played' : 'CHIME BLOCKED — see __audioState()';
   };
-  /** Diagnose why sound might not be audible. */
+
   window.__audioState = () => {
     const ctx = _actx;
     return {
@@ -1002,7 +859,6 @@ export function startTranscriptionWatcher() {
     muted: localStorage.getItem('mute_sounds') === '1',
     nextPollMs: watchDelay,
   });
-  /** Wipe all watcher state — use after testing to clear stale/blacklisted entries. */
   window.__notifyReset = () => {
     try {
       Object.keys(localStorage)
@@ -1016,13 +872,12 @@ export function startTranscriptionWatcher() {
   };
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) schedule(800);               // catch up on refocus
+    if (!document.hidden) schedule(800);
   });
   window.addEventListener('pagehide', () => { releaseLease(); clearTimeout(watchTimer); });
   window.addEventListener('beforeunload', () => { releaseLease(); clearTimeout(watchTimer); });
 }
 
-/* ---------- formatting ---------- */
 export function formatDate(value) {
   if (!value) return '—';
   const d = new Date(/Z|[+-]\d\d:?\d\d$/.test(value) ? value : value + 'Z');

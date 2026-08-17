@@ -145,7 +145,6 @@ if (requireAuth()) {
   $('#addParticipantBtn').insertAdjacentHTML('afterbegin', icon('users', 16));
   $('#searchUserBtn').innerHTML = icon('search', 18);
 
-  /* ---------- tabs ---------- */
   const tabs = $$('.tab');
   tabs.forEach(t => t.onclick = () => {
     tabs.forEach(o => {
@@ -164,17 +163,6 @@ if (requireAuth()) {
   let transcript = '';
   let transcriptRaw = '';
 
-  /* ============================================================
-     TRANSCRIPTION STATE MACHINE
-     ------------------------------------------------------------
-     The DB `status` column is the single source of truth, so the
-     correct UI is restored on reload / in another tab.
-
-       idle       -> no transcript, button enabled
-       processing -> job running, button locked + spinner, poll
-       done       -> transcript present, button locked "Transcribed"
-       failed     -> error shown, button re-enabled as "Try again"
-     ============================================================ */
   const tBar   = $('#transcribeBar');
   const tBtn   = $('#transcribeBtn');
   const tTitle = $('#transcribeTitle');
@@ -183,13 +171,9 @@ if (requireAuth()) {
   const STATE = { IDLE: 'idle', PROCESSING: 'processing', DONE: 'done', FAILED: 'failed' };
   let state = STATE.IDLE;
 
-  /* ---- local "job in flight" marker -------------------------------------
-     Backup for the case where the backend does not (yet) expose a status
-     field. Written when the user starts a job, cleared on a terminal state.
-     Lets us restore the loading UI when the user navigates away and returns.
-     Expires so a crashed server can never lock the button forever.        */
+
   const FLAG = `transcribing:${meetingId}`;
-  const FLAG_TTL = 60 * 60 * 1000;                       // 1 hour
+  const FLAG_TTL = 60 * 60 * 1000; 
 
   const markStarted = () => {
     try { localStorage.setItem(FLAG, String(Date.now())); } catch {}
@@ -207,12 +191,9 @@ if (requireAuth()) {
   };
   let pollTimer = null;
   let pollStarted = 0;
-  let pollDelay = 3000;                    // backs off to 15s on long jobs
-  const POLL_CEILING = 60 * 60 * 1000;     // stop polling after 1h
+  let pollDelay = 3000;
+  const POLL_CEILING = 60 * 60 * 1000;
 
-  /** Map whatever the backend reports onto our state machine.
-   *  Returns null when the payload carries NO recognisable signal, so the
-   *  caller can decide (we never downgrade a running job on silence). */
   function deriveState(m) {
     const raw = String(m?.status ?? m?.transcription_status ?? m?.state ?? '').toLowerCase().trim();
     const text = (typeof m?.transcripts === 'string' ? m.transcripts : m?.transcript) || '';
@@ -220,11 +201,11 @@ if (requireAuth()) {
     if (['processing', 'pending', 'queued', 'running', 'in_progress', 'inprogress',
          'transcribing', 'started', 'busy', 'working'].includes(raw)) return STATE.PROCESSING;
     if (['failed', 'error', 'failure', 'cancelled', 'canceled'].includes(raw)) return STATE.FAILED;
-    if (text.trim()) return STATE.DONE;                 // real text always wins
+    if (text.trim()) return STATE.DONE;
     if (['done', 'completed', 'complete', 'success', 'succeeded', 'finished', 'ready']
         .includes(raw)) return STATE.DONE;
-    if (raw) return null;      // unknown status string -> no opinion
-    return STATE.IDLE;         // genuinely empty row
+    if (raw) return null;
+    return STATE.IDLE;
   }
 
   const SKELETON =
@@ -232,14 +213,6 @@ if (requireAuth()) {
      <div class="skeleton skeleton--text" style="width:92%"></div>
      <div class="skeleton skeleton--text" style="width:78%"></div>
      <div class="skeleton skeleton--text" style="width:85%"></div>`;
-
-  /* Strip diarisation metadata so the panel shows prose, not machine output.
-     Handles lines like:
-       [3.29 -> 11.81] SPEAKER_00:  text
-       [00:03.29 --> 00:11.81] SPEAKER_00: text
-       (3.29 - 11.81) Speaker 1: text
-       SPEAKER_00: text
-     Consecutive lines from the same speaker are merged into one paragraph. */
   function cleanTranscript(raw) {
     const src = String(raw || '').replace(/\r/g, '');
     if (!src.trim()) return '';
@@ -258,12 +231,10 @@ if (requireAuth()) {
       if (t) out.push(t);
     }
 
-    // Nothing matched -> leave the original untouched.
     if (!touched) return src.trim();
     return out.join(' ').replace(/\s{2,}/g, ' ').trim();
   }
 
-  /** Single render function — every state change goes through here. */
   function render(next, { text = null, error = null } = {}) {
     state = next;
     if (text !== null) {
@@ -271,18 +242,12 @@ if (requireAuth()) {
       transcript = cleanTranscript(transcriptRaw);
     }
 
-    // Keep the local marker in sync with the machine.
-    // NOTE: we deliberately do NOT clear it on done/failed here. The global
-    // watcher (app.js) owns that: it needs the marker to survive until it has
-    // observed the completion, otherwise the notification + sound never fire.
-    // Only 'idle' (no job was ever started) releases it.
     if (next === STATE.PROCESSING) markStarted();
     else if (next === STATE.IDLE) clearStarted();
 
     const done = next === STATE.DONE;
     const processing = next === STATE.PROCESSING;
 
-    // --- transcript body ---
     $('#transcript').innerHTML =
       processing ? SKELETON
       : done      ? escapeHtml(transcript)
@@ -290,19 +255,16 @@ if (requireAuth()) {
         ? `<span class="muted">Transcription failed. You can try again below.</span>`
         : `<span class="muted">No transcript yet. Use the button below to generate one.</span>`;
 
-    // --- action row ---
     $('#copyTranscript').disabled = !done;
     $('#downloadTranscript').disabled = !done;
 
-    // --- the bar ---
     tBar.classList.remove('hidden');
     tBar.classList.toggle('is-running', processing);
     tBar.classList.toggle('is-done', done);
     tBar.classList.toggle('is-failed', next === STATE.FAILED);
 
-    // --- the button: locked in BOTH processing and done ---
-    busy(tBtn, processing);                 // spinner while the job runs
-    tBtn.disabled = processing || done;     // busy() toggles disabled, so set it after
+    busy(tBtn, processing);
+    tBtn.disabled = processing || done;
     tBtn.setAttribute('aria-disabled', String(tBtn.disabled));
     tBar.setAttribute('aria-busy', String(processing));
 
@@ -310,7 +272,6 @@ if (requireAuth()) {
       tTitle.textContent = 'Transcribing…';
       tHint.textContent  = 'The model is running on the server. This can take a few minutes — you can safely leave this page.';
       tBtn.title = 'Transcription already in progress';
-      // label is hidden by the spinner, but keep it correct for screen readers
       tBtn.innerHTML = `${icon('sparkle', 17)} Transcribing…`;
     } else if (done) {
       const words = transcript ? transcript.split(/\s+/).length.toLocaleString() : '0';
@@ -331,11 +292,10 @@ if (requireAuth()) {
     }
   }
 
-  /* ---------- polling while status === processing ---------- */
   function stopPolling() { clearTimeout(pollTimer); pollTimer = null; }
 
   function startPolling() {
-    if (pollTimer) return;                 // already polling
+    if (pollTimer) return;
     pollStarted = Date.now();
     pollDelay = 3000;
     queuePoll();
@@ -347,7 +307,6 @@ if (requireAuth()) {
   }
 
   async function poll() {
-    // Don't hammer the API in a hidden tab; resume on focus.
     if (document.hidden) { queuePoll(); return; }
 
     if (Date.now() - pollStarted > POLL_CEILING) {
@@ -360,24 +319,13 @@ if (requireAuth()) {
       const fresh = await api(`/meetings/${encodeURIComponent(meetingId)}`, { cache: 'no-store' });
       meeting = fresh;
       const next = deriveState(fresh);
-
-      /* STICKY RULE ------------------------------------------------------
-         Once a job is running, ONLY an explicit terminal signal releases the
-         lock: real transcript text, or a done/failed status. Anything else
-         (idle, empty, unknown status, a backend with no status column yet)
-         keeps the spinner up. This is what stops the button flicking back to
-         enabled a few seconds after being pressed. */
       if (next !== STATE.DONE && next !== STATE.FAILED) {
-        pollDelay = Math.min(pollDelay * 1.4, 15000);   // gentle backoff
+        pollDelay = Math.min(pollDelay * 1.4, 15000);
         queuePoll();
         return;
       }
 
       stopPolling();
-      /* This page polls faster than the global watcher, so it usually sees the
-         completion first. Emit the notification here rather than waiting — and
-         because notifyTranscription() is keyed by run, the watcher's later tick
-         is de-duplicated and cannot double-chime. */
       const title = (meeting && meeting.title) || 'Meeting';
       if (next === STATE.DONE) {
         const t = (typeof fresh.transcripts === 'string' ? fresh.transcripts : fresh.transcript) || '';
@@ -389,29 +337,26 @@ if (requireAuth()) {
       }
     } catch (err) {
       if (err.status === 401) { stopPolling(); return; }
-      pollDelay = Math.min(pollDelay * 2, 20000);       // network blip — back off and retry
-      queuePoll();                                      // stays locked meanwhile
+      pollDelay = Math.min(pollDelay * 2, 20000);
+      queuePoll();
     }
   }
 
-  // Poll immediately when the tab regains focus.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && state === STATE.PROCESSING) { pollDelay = 2000; queuePoll(); }
   });
   window.addEventListener('beforeunload', stopPolling);
 
-  /* ---------- click: fire the job, flip to processing ---------- */
   tBtn.onclick = async () => {
-    if (state === STATE.PROCESSING || state === STATE.DONE) return;   // hard guard
+    if (state === STATE.PROCESSING || state === STATE.DONE) return;
 
     const prev = state;
-    render(STATE.PROCESSING);              // optimistic: lock the button immediately
-    trackTranscription(meetingId);         // tell the global watcher a job just started
+    render(STATE.PROCESSING);
+    trackTranscription(meetingId);
 
     try {
       const res = await api(`/meetings/${encodeURIComponent(meetingId)}/transcribe`, { method: 'POST' });
 
-      // If the endpoint blocks and returns the finished text, use it directly.
       const text = typeof res === 'string' ? res
                  : res?.transcripts ?? res?.transcript ?? res?.text ?? '';
 
@@ -420,10 +365,6 @@ if (requireAuth()) {
         notifyTranscription(meetingId, (meeting && meeting.title) || 'Meeting', true);
         return;
       }
-
-      // Otherwise the job was accepted and runs in the background → poll.
-      // Only an explicit "failed" body cancels the lock; empty/unknown
-      // responses mean "accepted, keep waiting".
       if (deriveState(res) === STATE.FAILED) {
         render(STATE.FAILED, { error: res?.error || res?.detail || null });
         return;
@@ -433,7 +374,6 @@ if (requireAuth()) {
     } catch (err) {
       if (err.status === 401) return;
 
-      // 409 = server says a job is already running: stay locked and follow it.
       if (err.status === 409) {
         render(STATE.PROCESSING);
         startPolling();
@@ -446,7 +386,6 @@ if (requireAuth()) {
     }
   };
 
-  /* ---------- load meeting ---------- */
   (async () => {
     try {
       meeting = await api(`/meetings/${encodeURIComponent(meetingId)}`);
@@ -465,24 +404,17 @@ if (requireAuth()) {
         ? escapeHtml(summary)
         : `<span class="muted">No summary yet — it appears once processing finishes.</span>`;
 
-      // Restore the transcription state from the DB. If the server says
-      // "processing" (e.g. the user reloaded mid-run, or started it in another
-      // tab), the button comes back already locked and polling resumes.
-      /* Restore the transcription UI on every fresh page load.
-         The user may have started a job, navigated to Home, recorded another
-         meeting, and come back — the correct state must be rebuilt from the
-         server (or from the local marker if the API has no status field). */
       const initialText = (typeof meeting.transcripts === 'string' ? meeting.transcripts
                                                                    : meeting.transcript) || '';
-      const reported = deriveState(meeting);          // may be null = "no opinion"
+      const reported = deriveState(meeting);
 
       let initial;
       if (reported === STATE.DONE || reported === STATE.FAILED) {
-        initial = reported;                           // server is authoritative
+        initial = reported;
       } else if (reported === STATE.PROCESSING) {
-        initial = STATE.PROCESSING;                   // still running
+        initial = STATE.PROCESSING;
       } else if (startedLocally()) {
-        initial = STATE.PROCESSING;                   // we started one; API is quiet
+        initial = STATE.PROCESSING;
       } else {
         initial = STATE.IDLE;
       }
@@ -490,7 +422,6 @@ if (requireAuth()) {
       render(initial, { text: initialText, error: meeting.error || null });
       if (initial === STATE.PROCESSING) startPolling();
 
-      // Segments only make sense once a transcript exists.
       if (initial === STATE.DONE) { loadSegments(); resumeSegJobs(); }
       else segBar.hidden = true;
 
@@ -516,18 +447,13 @@ if (requireAuth()) {
     }
   })();
 
-  /* ============================================================
-     SEGMENTS + SUMMARISATION
-     ------------------------------------------------------------
-     Endpoint paths are gathered here — if any differ on your
-     backend, change them in this one block only.
-     ============================================================ */
+
   const segHost   = $('#segments');
   const segBar    = $('#segBar');
   const segmentBtn     = $('#segmentBtn');
   const summariseAllBtn = $('#summariseAllBtn');
 
-  let segments = [];          // normalised Segment objects
+  let segments = [];
   let segBusy  = false;
 
   const secs = v => {
@@ -535,7 +461,6 @@ if (requireAuth()) {
     return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
   };
 
-  /** Accept every response shape in the contract and return Segment[]. */
   function readSegments(res) {
     const arr = Array.isArray(res) ? res
               : Array.isArray(res?.segments) ? res.segments
@@ -552,7 +477,6 @@ if (requireAuth()) {
     }));
   }
 
-  /** Merge summary/decisions returned by the summarise endpoints. */
   function applySummaries(res) {
     const list = Array.isArray(res?.summarized_segments) ? res.summarized_segments : [];
     for (const s of list) {
@@ -563,11 +487,10 @@ if (requireAuth()) {
   }
 
   function segStateRender() {
-    if (!segBar || !document.getElementById('segments')) return;   // page torn down
+    if (!segBar || !document.getElementById('segments')) return;
     const total = segments.length;
     const done  = segments.filter(s => (s.summary || '').trim()).length;
 
-    // Persisted locks: survive refresh, navigation and other tabs.
     const segging = jobRunning(JOB.SEGMENT, meetingId);
     const summing = jobRunning(JOB.SUMMARIZE, meetingId);
     const anyJob  = segging || summing;
@@ -576,7 +499,6 @@ if (requireAuth()) {
     $('#copyAllSegments').hidden = !total;
     segBar.classList.toggle('is-running', anyJob);
 
-    // --- header text ---
     if (segging) {
       $('#segTitle').textContent = 'Segmenting…';
       $('#segHint').textContent  = 'Splitting the transcript into topics. You can leave this page.';
@@ -593,7 +515,6 @@ if (requireAuth()) {
         : `${done} of ${total} summarised.`;
     }
 
-    // --- buttons: locked while ANY job runs ---
     segmentBtn.hidden = total > 0 && !segging;
     busy(segmentBtn, segging);
     segmentBtn.disabled = anyJob || total > 0;
@@ -602,7 +523,6 @@ if (requireAuth()) {
     busy(summariseAllBtn, summing);
     summariseAllBtn.disabled = anyJob;
 
-    // --- body ---
     if (segging && !total) {
       segHost.innerHTML = `<div class="skeleton skeleton--card"></div>
                            <div class="skeleton skeleton--card"></div>`;
@@ -640,9 +560,6 @@ if (requireAuth()) {
     }).join('');
   }
 
-  /* If a segment/summarise job was still running when the page was left or
-     refreshed, the lock is still in localStorage. Restore the running UI and
-     poll until the server shows the work is finished, then notify. */
   let segPoll = null;
   window.addEventListener('pagehide', () => clearTimeout(segPoll));
   function resumeSegJobs() {
@@ -652,16 +569,15 @@ if (requireAuth()) {
     clearTimeout(segPoll);
     let delay = 3000;
     const startedAt = Date.now();
-    const CEILING = 30 * 60 * 1000;         // never poll forever
+    const CEILING = 30 * 60 * 1000;
 
     const tick = async () => {
       const segging = jobRunning(JOB.SEGMENT, meetingId);
       const summing = jobRunning(JOB.SUMMARIZE, meetingId);
-      if (!segging && !summing) return;      // already finished elsewhere
+      if (!segging && !summing) return;
 
       const title = (meeting && meeting.title) || 'Meeting';
 
-      // Give up rather than leave the UI locked forever.
       if (Date.now() - startedAt > CEILING) {
         if (segging) notifyJob(JOB.SEGMENT, meetingId, title, false);
         if (summing) notifyJob(JOB.SUMMARIZE, meetingId, title, false);
@@ -674,17 +590,13 @@ if (requireAuth()) {
         const total = segments.length;
         const doneNow = segments.filter(x => (x.summary || '').trim()).length;
 
-        /* ABSOLUTE completion tests — not deltas.
-           loadSegments() already ran on page load, so a "did it change?"
-           comparison is false on the first tick and the lock would never
-           release. Ask instead: is the work actually done now? */
         if (segging && total > 0) {
           notifyJob(JOB.SEGMENT, meetingId, title, true);
         }
         if (summing && total > 0 && doneNow === total) {
           notifyJob(JOB.SUMMARIZE, meetingId, title, true);
         }
-      } catch { /* transient error: keep waiting */ }
+      } catch {}
 
       segStateRender();
       if (jobRunning(JOB.SEGMENT, meetingId) || jobRunning(JOB.SUMMARIZE, meetingId)) {
@@ -692,12 +604,10 @@ if (requireAuth()) {
         segPoll = setTimeout(tick, delay);
       }
     };
-    segPoll = setTimeout(tick, 1200);        // check quickly on resume
+    segPoll = setTimeout(tick, 1200);
   }
 
-  /* Safety net: start recovery immediately on page load, independent of the
-     meeting-detail fetch. If that fetch throws, resumeSegJobs() would never be
-     reached from there and a leftover lock would keep the buttons disabled. */
+
   if (jobRunning(JOB.SEGMENT, meetingId) || jobRunning(JOB.SUMMARIZE, meetingId)) {
     loadSegments().then(resumeSegJobs).catch(resumeSegJobs);
   }
@@ -706,33 +616,30 @@ if (requireAuth()) {
     try {
       const res = await api(SEG_API.listAll(meetingId), { cache: 'no-store' });
       segments = readSegments(res);
-      // Fold in any summaries stored separately.
       if (segments.length && segments.some(s => !s.summary)) {
         try { applySummaries(await api(SEG_API.summarised(meetingId), { cache: 'no-store' })); } catch {}
       }
     } catch (err) {
       if (err.status === 401) return;
-      if (!opts.silent) segments = [];                // 404 = not segmented yet
+      if (!opts.silent) segments = [];
     }
     if (!opts.silent) segStateRender();
   }
 
   segmentBtn.onclick = async () => {
     if (segBusy || jobRunning(JOB.SEGMENT, meetingId)) return;
-    if (!jobStart(JOB.SEGMENT, meetingId)) return;      // persisted lock
+    if (!jobStart(JOB.SEGMENT, meetingId)) return;
     segBusy = true;
-    segStateRender();                                    // paint the running state
+    segStateRender();
     try {
       const res = await api(SEG_API.segment(meetingId), { method: 'POST', body: { meeting_id: Number(meetingId) } });
       segments = readSegments(res);
-      if (!segments.length) await loadSegments();        // response may omit the data
+      if (!segments.length) await loadSegments();
       notifyJob(JOB.SEGMENT, meetingId, (meeting && meeting.title) || 'Meeting', true);
     } catch (err) {
       if (err.status === 401) { jobEnd(JOB.SEGMENT, meetingId); return; }
       notifyJob(JOB.SEGMENT, meetingId, (meeting && meeting.title) || 'Meeting', false);
     } finally {
-      // Guarantee the lock is released even if a path above missed it,
-      // otherwise the button stays disabled forever.
       jobEnd(JOB.SEGMENT, meetingId);
       segBusy = false;
       segStateRender();
@@ -758,7 +665,6 @@ if (requireAuth()) {
     }
   };
 
-  /* Per-segment summarise + seek, delegated. */
   segHost.addEventListener('click', async e => {
     const seek = e.target.closest('[data-seek]');
     if (seek) {
@@ -800,11 +706,6 @@ if (requireAuth()) {
     copy(text, 'Segments');
   };
 
-  /* ============================================================
-     RAG CHAT
-       GET  /meetings/{id}/chat  -> { messages: [...] }  (newest first)
-       POST /meetings/{id}/chat  -> { answer, sources: [{start,end}] }
-     ============================================================ */
   const chatLog   = $('#chatLog');
   const chatForm  = $('#chatForm');
   const chatInput = $('#chatInput');
@@ -813,7 +714,6 @@ if (requireAuth()) {
 
   let chatBusy = false;
 
-  /* Arabic/Hebrew content must render right-to-left. */
   const isRTL = t => /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFF]/.test(String(t || ''));
   const dirOf = t => (isRTL(t) ? 'rtl' : 'ltr');
 
@@ -822,12 +722,11 @@ if (requireAuth()) {
     return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
   };
 
-  /** Merge overlapping/duplicate source ranges, then sort by start. */
   function tidySources(sources) {
     const list = (Array.isArray(sources) ? sources : [])
       .map(s => {
         const a = Number(s?.start) || 0, b = Number(s?.end) || 0;
-        return { start: Math.min(a, b), end: Math.max(a, b) };   // never render 03:30-02:30
+        return { start: Math.min(a, b), end: Math.max(a, b) };
       })
       .filter(s => s.end > s.start)
       .sort((a, b) => a.start - b.start);
@@ -843,9 +742,6 @@ if (requireAuth()) {
   function sourcesHTML(sources) {
     const list = tidySources(sources);
     if (!list.length) return '';
-    // NOTE: built as a single line — .chat__bubble uses white-space:pre-wrap,
-    // so any newline/indent inside this markup would render as real whitespace
-    // and blow the chips apart.
     const chips = list.map(s =>
       `<button class="chip chip--src" type="button" data-seek="${s.start}" title="Play from ${mmss(s.start)}">${mmss(s.start)}\u2013${mmss(s.end)}</button>`
     ).join('');
@@ -886,7 +782,6 @@ if (requireAuth()) {
         chatLog.innerHTML = chatEmpty();
         return;
       }
-      // API returns newest-first; render oldest-first like a chat log.
       [...messages]
         .sort((x, y) => new Date(x.created_at || 0) - new Date(y.created_at || 0))
         .forEach(m => bubble({ question: m.question, answer: m.answer, sources: m.sources }));
@@ -929,7 +824,6 @@ if (requireAuth()) {
 
   chatForm.addEventListener('submit', e => { e.preventDefault(); askQuestion(chatInput.value); });
 
-  // Enter sends, Shift+Enter newlines; textarea grows with content.
   chatInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatForm.requestSubmit(); }
   });
@@ -939,7 +833,6 @@ if (requireAuth()) {
     chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
   });
 
-  // Source chips seek the audio player.
   chatLog.addEventListener('click', e => {
     const chip = e.target.closest('[data-seek]');
     if (!chip) return;
@@ -952,12 +845,11 @@ if (requireAuth()) {
 
   let chatLoaded = false;
   $('#tab-chat').addEventListener('click', () => {
-    if (chatLoaded) return;            // load once, on first open
+    if (chatLoaded) return;
     chatLoaded = true;
     loadChatHistory();
   });
 
-  /* ---------- audio ---------- */
   (async () => {
     try {
       const res = await api(`/meetings/${encodeURIComponent(meetingId)}/audio`, { raw: true });
@@ -972,7 +864,6 @@ if (requireAuth()) {
     }
   })();
 
-  /* ---------- delete ---------- */
   $('#deleteBtn').onclick = async () => {
     const ok = await confirmDialog({
       title: 'Delete this meeting?',
@@ -990,7 +881,6 @@ if (requireAuth()) {
     } finally { busy($('#deleteBtn'), false); }
   };
 
-  /* ---------- participants ---------- */
   $('#addParticipantBtn').onclick = () => {
     $('#participantBox').classList.toggle('hidden');
     if (!$('#participantBox').classList.contains('hidden')) $('#participantEmail').focus();

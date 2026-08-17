@@ -52,7 +52,6 @@ if (!email) location.replace('register.html');
 $('#logoSlot').innerHTML = icon('mail', 26);
 $('#emailText').textContent = email;
 
-/* ---- OTP box behaviour: autotab, backspace, paste ---- */
 const boxes = $$('#otp input');
 const code = () => boxes.map(b => b.value).join('');
 
@@ -78,7 +77,6 @@ boxes.forEach((box, i) => {
 });
 boxes[0].focus();
 
-/* ---- resend cooldown ---- */
 let cooldown = 0;
 const resend = $('#resendBtn');
 const tick = () => {
@@ -100,7 +98,6 @@ resend.onclick = async () => {
   } finally { busy(resend, false); tick(); }
 };
 
-/* ---- submit ---- */
 $('#form').addEventListener('submit', async e => {
   e.preventDefault();
   if (code().length !== 6) { $('#otpErr').textContent = 'Enter all 6 digits.'; return; }

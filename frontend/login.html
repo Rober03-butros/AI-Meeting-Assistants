@@ -54,7 +54,6 @@ redirectIfAuthed();
 
 $('#logoSlot').innerHTML = icon('logo', 26);
 
-/* password visibility */
 const pw = $('#password'), toggle = $('#togglePw');
 const paintToggle = () => {
   toggle.innerHTML = icon(pw.type === 'password' ? 'eye' : 'eyeOff', 18);
@@ -63,7 +62,6 @@ const paintToggle = () => {
 paintToggle();
 toggle.onclick = () => { pw.type = pw.type === 'password' ? 'text' : 'password'; paintToggle(); };
 
-/* validation */
 const setErr = (input, slot, msg) => {
   $(slot).textContent = msg || '';
   input.setAttribute('aria-invalid', msg ? 'true' : 'false');
