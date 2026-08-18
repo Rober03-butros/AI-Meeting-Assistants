@@ -37,13 +37,6 @@ class Meeting(Base):
         nullable=True,
     )
 
-    '''
-    NOT_STARTED
-    PROCESSING
-    COMPLETED
-    FAILED
-    '''
-
     transcript_status: Mapped[str] = mapped_column(
         String(50),
         nullable=False,

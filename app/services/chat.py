@@ -24,40 +24,38 @@ def ask(db: Session,meeting_id: int,user_id: int,question: str):
     chunks = search_meeting(
           meeting_id=meeting_id,
           question=rewritten_question,
-          top_k=12
+          top_k=15
       )
   
   
     chunks = rerank_chunks(
           query=rewritten_question,
           retrieved_chunks=chunks,
-          k=5
+          k=8
       )
-  
+
+    chunks = [x for x in chunks if x['rerank_score'] >= 0.0013]
+    
   
     if len(chunks) == 0:
   
-        chat = ChatMessage(
-            meeting_id=meeting_id,
-            user_id=user_id,
-            question=question,
-            rewritten_question = rewritten_question,
-            answer = 'No information found.',
-            sources = []
-        )
-
-        db.add(chat)
-        db.commit()
-  
         return {
-            "answer": chat.answer,
-            "sources": chat.sources,
+            "answer": 'لم يتم ذكر مثل هذه المعلومة في الاجتماع.',
+            "sources": [],
         }
+
 
     result = generate_answer(
         chunks=chunks,
         question=rewritten_question,
     )
+
+    if result["answer"] == 'لم يتم ذكر مثل هذه المعلومة في الاجتماع.':
+
+        return {
+            "answer": result["answer"],
+            "sources": [],
+        }
   
   
     chat = ChatMessage(

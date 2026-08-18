@@ -44,24 +44,6 @@ def upload_meeting_audio(
         user=current_user,
     )
 
- ################################################################
- #################### TESTING ###################################
-@router.post("/upload_transcript",response_model=MeetingResponse,)
-def upload_meeting_transcript(
-    title: str = Form(...),
-    transcript: str = Form(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-
-    return add_transcript_to_meeting(
-        db=db,
-        title=title,
-        transcript=transcript,
-        user=current_user
-    )
-################################################################
-################################################################
 
 @router.get("")
 def get_my_meetings(

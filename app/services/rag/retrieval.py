@@ -11,29 +11,18 @@ def search_meeting(meeting_id: int,question: str,top_k: int = 5):
 
     try:
 
-        # 1. تحميل index الخاص بالاجتماع
-
         index = load_faiss_index(
             meeting_id
         )
-
-
-        # 2. تحويل السؤال إلى vector
 
         question_embedding = create_embeddings(
             [question]
         )
 
-
-        # FAISS يحتاج float32
-
         question_embedding = (
             question_embedding
             .astype("float32")
         )
-
-
-        # 3. البحث
 
         scores, indices = index.search(
             question_embedding,
@@ -42,9 +31,6 @@ def search_meeting(meeting_id: int,question: str,top_k: int = 5):
 
 
         chunk_indexes = indices[0]
-
-
-        # 4. جلب الـ chunks من database
 
         chunks = (
             db.query(MeetingChunk)
